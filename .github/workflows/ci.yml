@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build + test (Swift ${{ matrix.swift }})
+    runs-on: macos-14
+    strategy:
+      matrix:
+        swift: ['5.9']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: ${{ matrix.swift }}
+      - name: Swift version
+        run: swift --version
+      - name: Resolve packages
+        run: swift package resolve
+      - name: Build
+        run: swift build -v
+      - name: Test
+        run: swift test -v
+
+  lint:
+    name: SwiftLint
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Run SwiftLint
+        run: swiftlint --strict
