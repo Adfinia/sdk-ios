@@ -1,34 +1,89 @@
-// AdfiniaClient — internal coordinator. The Adfinia enum's static surface
-// delegates to a singleton instance of this class. Advanced consumers can
-// create their own instance for multi-tenant SSR / test isolation.
+// AdfiniaClient — internal coordinator. The `Adfinia` enum's static
+// surface delegates to a singleton instance of this class. Advanced
+// consumers (multi-tenant servers, isolated test contexts) can create
+// their own instance directly.
 //
-// Skeleton: in-memory only. NEXT.md tracks the real-transport,
-// UserDefaults-persistence, exponential-backoff work.
+// Mirrors `sdks/web/src/client.ts`. Behaviour-for-behaviour parity with
+// the web SDK is the explicit goal — if you read one, you've read both.
 
 import Foundation
 
-public final class AdfiniaClient {
-    private var config: AdfiniaConfig?
-    private var identityStore = IdentityStore()
-    private var queue: [AdfiniaPayload] = []
-    private let queueLock = NSLock()
+/// Hooks the SDK can use to swap dependencies in tests. Not part of the
+/// public surface — exported `internal` only.
+struct ClientHooks {
+    var transport: Transport?
+    var store: AdfiniaKVStore?
+    var now: (() -> Date)?
+    var loggerOverride: EventQueueDebugLogger?
+}
 
-    public init() {}
+public final class AdfiniaClient {
+    private let hooks: ClientHooks
+    private let stateLock = NSLock()
+
+    private var config: AdfiniaConfig?
+    private var identityStore: IdentityStore?
+    private var queue: EventQueue?
+    private var transport: Transport?
+    private var initialised = false
+    private let now: () -> Date
+
+    public convenience init() {
+        self.init(hooks: ClientHooks())
+    }
+
+    init(hooks: ClientHooks) {
+        self.hooks = hooks
+        self.now = hooks.now ?? { Date() }
+    }
+
+    // MARK: - Public surface
 
     public func initialize(_ config: AdfiniaConfig) {
-        guard self.config == nil else {
+        stateLock.lock()
+        if initialised {
             log("init() called twice — ignoring")
+            stateLock.unlock()
+            return
+        }
+        if config.writeKey.isEmpty {
+            stateLock.unlock()
+            assertionFailure("AdfiniaSDK: writeKey is required")
             return
         }
         self.config = config
+        let store = hooks.store ?? UserDefaultsStore(suiteName: "com.adfinia.sdk")
+        let identity = IdentityStore(store: store)
+        self.identityStore = identity
+        let logger = hooks.loggerOverride ?? PrintDebugLogger(enabled: config.debug)
+        let transport = hooks.transport ?? HttpTransport(host: config.host, writeKey: config.writeKey)
+        self.transport = transport
+        let queueCfg = EventQueueConfig(
+            store: store,
+            transport: transport,
+            flushAt: config.flushAt,
+            flushIntervalSeconds: config.flushIntervalSeconds,
+            maxQueueSize: config.maxQueueSize,
+            logger: logger,
+            onResolvedCustomerId: { [weak identity] id in
+                identity?.setResolvedCustomerId(id)
+            }
+        )
+        self.queue = EventQueue(config: queueCfg)
+        initialised = true
         log("initialised host=\(config.host)")
+        stateLock.unlock()
+    }
+
+    public func identify(_ customerId: String, traits: AdfiniaTraits? = nil) {
+        identify(.customerId(customerId), traits: traits)
     }
 
     public func identify(_ arg: AdfiniaIdentifyArg, traits: AdfiniaTraits? = nil) {
         guard guardCall("identify") else { return }
-        var customerId: String?
-        var anonymousId: String?
-        var mergedTraits: AdfiniaTraits? = traits
+        var customerId: String? = nil
+        var anonymousId: String? = nil
+        var traitsJson: [String: AdfiniaJSONValue]? = AdfiniaJSONValue.fromDictionary(traits)
 
         switch arg {
         case .customerId(let id):
@@ -36,99 +91,151 @@ public final class AdfiniaClient {
         case .object(let cId, let aId, let t):
             customerId = cId
             anonymousId = aId
-            if let t = t { mergedTraits = mergedTraits.map { $0.merging(t) { _, b in b } } ?? t }
+            if let t = t {
+                let extra = AdfiniaJSONValue.fromDictionary(t) ?? [:]
+                if var merged = traitsJson {
+                    for (k, v) in extra { merged[k] = v }
+                    traitsJson = merged
+                } else {
+                    traitsJson = extra
+                }
+            }
         }
 
-        identityStore.identify(customerId: customerId, traits: mergedTraits, anonymousId: anonymousId)
-        enqueue(AdfiniaPayload(
+        guard let identity = identityStore else { return }
+        identity.identify(customerId: customerId, traits: traitsJson, anonymousId: anonymousId)
+        enqueue(makePayload(
             type: .identify,
             event: nil,
-            customerId: identityStore.customerId,
-            anonymousId: identityStore.anonymousId,
             previousId: nil,
             properties: nil,
-            traits: identityStore.traits
+            traits: identity.traits
         ))
     }
 
     public func track(_ event: String, properties: AdfiniaProperties? = nil) {
         guard guardCall("track") else { return }
-        guard !event.isEmpty else { log("track() without an event — dropped"); return }
-        enqueue(AdfiniaPayload(
+        guard !event.isEmpty else {
+            log("track() called without an event name — dropped")
+            return
+        }
+        enqueue(makePayload(
             type: .track,
             event: event,
-            customerId: identityStore.customerId,
-            anonymousId: identityStore.anonymousId,
             previousId: nil,
-            properties: properties,
+            properties: AdfiniaJSONValue.fromDictionary(properties),
             traits: nil
         ))
     }
 
-    public func screen(_ name: String?, properties: AdfiniaProperties?) {
+    public func screen(_ name: String? = nil, properties: AdfiniaProperties? = nil) {
         guard guardCall("screen") else { return }
-        enqueue(AdfiniaPayload(
+        enqueue(makePayload(
             type: .screen,
             event: name,
-            customerId: identityStore.customerId,
-            anonymousId: identityStore.anonymousId,
             previousId: nil,
-            properties: properties,
+            properties: AdfiniaJSONValue.fromDictionary(properties),
             traits: nil
         ))
     }
 
-    public func alias(_ newId: String, previousId: String?) {
+    public func alias(_ newId: String, previousId: String? = nil) {
         guard guardCall("alias") else { return }
-        guard !newId.isEmpty else { return }
-        let prev = previousId ?? identityStore.customerId ?? identityStore.anonymousId
-        enqueue(AdfiniaPayload(
-            type: .alias,
-            event: nil,
-            customerId: newId,
-            anonymousId: identityStore.anonymousId,
-            previousId: prev,
-            properties: nil,
-            traits: nil
-        ))
-        identityStore.identify(customerId: newId, traits: nil, anonymousId: nil)
+        guard !newId.isEmpty else {
+            log("alias() called without a newId — dropped")
+            return
+        }
+        guard let identity = identityStore else { return }
+        let prev = previousId ?? identity.customerId ?? identity.anonymousId
+        enqueue(makeAliasPayload(newId: newId, previousId: prev))
+        identity.identify(customerId: newId, traits: nil, anonymousId: nil)
     }
 
     public func reset() {
-        guard config != nil else { return }
-        identityStore.reset()
+        guard initialised else { return }
+        identityStore?.reset()
+        log("identity reset — new anonymous_id minted")
     }
 
     public func flush() async {
-        guard config != nil else { return }
-        // Skeleton: drain the queue and pretend it shipped. Real transport
-        // lands with NEXT-IOS-2.
-        queueLock.lock()
-        let drained = queue
-        queue.removeAll()
-        queueLock.unlock()
-        log("flushed \(drained.count) event(s) [skeleton — no network]")
+        guard initialised else { return }
+        await queue?.flush()
+    }
+
+    // MARK: - Internal (test) accessors
+
+    func _identityStore() -> IdentityStore? { identityStore }
+    func _queueCount() -> Int { queue?.count ?? 0 }
+    func _drainQueue() -> [AdfiniaPayload] { queue?.drainAll() ?? [] }
+
+    // MARK: - Private
+
+    private func makePayload(
+        type: AdfiniaPayloadType,
+        event: String?,
+        previousId: String?,
+        properties: [String: AdfiniaJSONValue]?,
+        traits: [String: AdfiniaJSONValue]?
+    ) -> AdfiniaPayload {
+        guard let identity = identityStore else {
+            // Defensive — should never hit if `guardCall` passed.
+            return AdfiniaPayload(
+                type: type,
+                event: event,
+                customerId: nil,
+                anonymousId: "",
+                previousId: previousId,
+                properties: properties,
+                traits: traits,
+                context: AdfiniaContextBuilder.build(),
+                sentAt: ISO8601DateFormatter.adfinia.string(from: now()),
+                messageId: UUIDv7.generate()
+            )
+        }
+        return AdfiniaPayload(
+            type: type,
+            event: event,
+            customerId: identity.customerId,
+            anonymousId: identity.anonymousId,
+            previousId: previousId,
+            properties: properties,
+            traits: traits,
+            context: AdfiniaContextBuilder.build(),
+            sentAt: ISO8601DateFormatter.adfinia.string(from: now()),
+            messageId: UUIDv7.generate()
+        )
+    }
+
+    private func makeAliasPayload(newId: String, previousId: String) -> AdfiniaPayload {
+        AdfiniaPayload(
+            type: .alias,
+            event: nil,
+            customerId: newId,
+            anonymousId: identityStore?.anonymousId ?? "",
+            previousId: previousId,
+            properties: nil,
+            traits: nil,
+            context: AdfiniaContextBuilder.build(),
+            sentAt: ISO8601DateFormatter.adfinia.string(from: now()),
+            messageId: UUIDv7.generate()
+        )
     }
 
     private func enqueue(_ payload: AdfiniaPayload) {
-        queueLock.lock()
-        queue.append(payload)
-        if queue.count > (config?.maxQueueSize ?? 1000) {
-            queue.removeFirst()
-        }
-        queueLock.unlock()
-        if queue.count >= (config?.flushAt ?? 50) {
-            Task { await flush() }
-        }
+        queue?.enqueue(payload)
     }
 
     private func guardCall(_ label: String) -> Bool {
-        guard config != nil else {
+        if !initialised {
             print("[adfinia] \(label)() called before initialize()")
             return false
         }
         if let consent = config?.consent {
-            return consent()
+            let granted: Bool = consent()
+            if !granted {
+                log("\(label)() dropped — consent gate returned false")
+                return false
+            }
         }
         return true
     }
@@ -139,10 +246,12 @@ public final class AdfiniaClient {
     }
 }
 
-private extension Dictionary {
-    func merging(_ other: [Key: Value], uniquingKeysWith: (Value, Value) -> Value) -> [Key: Value] {
-        var copy = self
-        for (k, v) in other { copy[k] = uniquingKeysWith(copy[k] ?? v, v) }
-        return copy
-    }
+extension ISO8601DateFormatter {
+    /// Shared formatter with fractional seconds — matches the web SDK's
+    /// `new Date().toISOString()` output to the millisecond.
+    static let adfinia: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 }
