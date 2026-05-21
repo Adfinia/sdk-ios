@@ -46,12 +46,38 @@ final class EventQueue: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var destroyed = false
 
+    /// Effective knobs — start at the cfg defaults and may be tightened by
+    /// applyRemoteConfig() after a successful GET /api/v1/sdk/config.
+    private var effectiveFlushAt: Int
+    private var effectiveFlushInterval: TimeInterval
+
     init(config: EventQueueConfig) {
         self.cfg = config
+        self.effectiveFlushAt = config.flushAt
+        self.effectiveFlushInterval = config.flushIntervalSeconds
         self.buffer = Self.load(from: config.store)
         // Defer scheduling until after init() so the timer doesn't fire
         // before the caller has wired up `onResolvedCustomerId`, etc.
         workQueue.async { [weak self] in self?.scheduleNextLocked() }
+    }
+
+    /// Apply config knobs received from GET /api/v1/sdk/config. Soft —
+    /// nil fields keep the existing value. Reschedules the next flush so
+    /// a tighter interval takes effect right away.
+    func applyRemoteConfig(flushAt: Int?, flushIntervalSeconds: TimeInterval?) {
+        workQueue.async { [weak self] in
+            guard let self = self, !self.destroyed else { return }
+            var changed = false
+            if let f = flushAt, f > 0, f != self.effectiveFlushAt {
+                self.effectiveFlushAt = f
+                changed = true
+            }
+            if let i = flushIntervalSeconds, i > 0, i != self.effectiveFlushInterval {
+                self.effectiveFlushInterval = i
+                changed = true
+            }
+            if changed { self.scheduleNextLocked() }
+        }
     }
 
     private static func load(from store: AdfiniaKVStore) -> [AdfiniaPayload] {
@@ -83,7 +109,7 @@ final class EventQueue: @unchecked Sendable {
                 self.cfg.logger.log("queue overflow — dropped \(dropped) oldest event(s)")
             }
             self.persistLocked()
-            if self.buffer.count >= self.cfg.flushAt {
+            if self.buffer.count >= self.effectiveFlushAt {
                 self.flushLocked()
             }
         }
@@ -131,7 +157,7 @@ final class EventQueue: @unchecked Sendable {
         guard !buffer.isEmpty else { completion?(); return }
 
         inflight = true
-        let sending = Array(buffer.prefix(cfg.flushAt))
+        let sending = Array(buffer.prefix(effectiveFlushAt))
         let sendingCount = sending.count
         let transport = cfg.transport
         let logger = cfg.logger
@@ -180,7 +206,7 @@ final class EventQueue: @unchecked Sendable {
     private func scheduleNextLocked() {
         if destroyed { return }
         timer?.cancel()
-        let delay = retryDelaySeconds > 0 ? retryDelaySeconds : cfg.flushIntervalSeconds
+        let delay = retryDelaySeconds > 0 ? retryDelaySeconds : effectiveFlushInterval
         let t = DispatchSource.makeTimerSource(queue: workQueue)
         t.schedule(deadline: .now() + delay, leeway: .milliseconds(100))
         t.setEventHandler { [weak self] in

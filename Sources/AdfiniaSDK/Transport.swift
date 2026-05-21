@@ -94,6 +94,7 @@ final class HttpTransport: Transport {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(AdfiniaVersion.sdkVersionHeader, forHTTPHeaderField: "X-Adfinia-SDK-Version")
 
         let encoder = JSONEncoder()
         let body: Data
@@ -134,6 +135,7 @@ final class HttpTransport: Transport {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(AdfiniaVersion.sdkVersionHeader, forHTTPHeaderField: "X-Adfinia-SDK-Version")
 
         let encoder = JSONEncoder()
         let body: Data

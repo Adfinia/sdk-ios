@@ -73,6 +73,50 @@ public final class AdfiniaClient {
         initialised = true
         log("initialised host=\(config.host)")
         stateLock.unlock()
+
+        // Best-effort: pull per-tenant runtime config from the server. The
+        // server endpoint (GET /api/v1/sdk/config) returns batch_size /
+        // flush_interval_ms / sampling_rate / breaker thresholds; we apply
+        // the knobs we understand and ignore the rest. Forward-compat:
+        // an older SDK never breaks when the server adds a new field.
+        //
+        // Detached Task so a slow / failing config fetch never blocks
+        // first-event delivery.
+        Task.detached { [weak self] in
+            await self?.fetchRemoteConfig(host: config.host, writeKey: config.writeKey)
+        }
+    }
+
+    /// GET /api/v1/sdk/config and apply the knobs we recognise. Soft-fails
+    /// on any error — the local defaults stay.
+    private func fetchRemoteConfig(host: String, writeKey: String) async {
+        let normalisedHost = host.hasSuffix("/") ? String(host.dropLast()) : host
+        guard let url = URL(string: normalisedHost + "/api/v1/sdk/config") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(AdfiniaVersion.sdkVersionHeader, forHTTPHeaderField: "X-Adfinia-SDK-Version")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 426 {
+                log("SDK below the server minimum — please upgrade AdfiniaSDK")
+                return
+            }
+            guard (200...299).contains(http.statusCode) else { return }
+            guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            let batchSize = parsed["batch_size"] as? Int
+            let flushIntervalMs = parsed["flush_interval_ms"] as? Int
+            if batchSize != nil || flushIntervalMs != nil {
+                queue?.applyRemoteConfig(
+                    flushAt: batchSize,
+                    flushIntervalSeconds: flushIntervalMs.map { Double($0) / 1000.0 }
+                )
+                log("remote config applied batch=\(String(describing: batchSize)) intervalMs=\(String(describing: flushIntervalMs))")
+            }
+        } catch {
+            log("remote config fetch failed — sticking with defaults")
+        }
     }
 
     public func identify(_ customerId: String, traits: AdfiniaTraits? = nil) {
