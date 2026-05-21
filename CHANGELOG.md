@@ -4,10 +4,13 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
-## [1.0.0-rc.1] — 2026-05-22
+## [1.0.0] — 2026-05-22
 
-First release candidate. The wire surface and public API are now frozen
-for the 1.0 line — only backwards-compatible additions land after this.
+First stable release. Same content as the dev-internal-only
+`1.0.0-rc.1` build (never published to CocoaPods or tagged on GitHub);
+the founder direction on 2026-05-22 was to drop the `-rc.1` suffix and
+ship straight as `1.0.0`. SPM consumers resolve via the `sdk-ios-v1.0.0`
+Git tag; CocoaPods consumers pull from `pod trunk push`.
 
 ### Added
 - **Server-driven runtime config.** On `initialize()`, the SDK fetches
@@ -26,9 +29,15 @@ for the 1.0 line — only backwards-compatible additions land after this.
   remains via the `Package.swift` + Git tag.
 
 ### Changed
-- Library version bumped `0.2.0 → 1.0.0-rc.1`.
+- Library version bumped `0.2.0 → 1.0.0`.
 - `AdfiniaVersion` gains the `sdkVersionHeader` computed property
   (`"adfinia-sdk-ios@<libraryVersion>"`).
+
+## ~~[1.0.0-rc.1] — 2026-05-22~~
+
+~~Dev-internal release candidate. Never published to CocoaPods, never
+tagged on GitHub; superseded by `1.0.0` on the same day per founder
+direction. Same code, no `-rc.1` suffix on the public artifact.~~
 
 ### Notes
 - No breaking changes to the public `initialize / identify / track /

@@ -6,7 +6,7 @@
 // Header shape (server contract, see
 // api/internal/identity/sdk_config_handler.go):
 //
-//     X-Adfinia-SDK-Version: adfinia-sdk-ios@1.0.0-rc.1
+//     X-Adfinia-SDK-Version: adfinia-sdk-ios@1.0.0
 //
 // The server's SDKVersionMiddleware parses this header to enforce the
 // minimum supported version per SDK. Below the floor → 426 Upgrade
@@ -16,7 +16,7 @@ import Foundation
 
 enum AdfiniaVersion {
     static let libraryName = "adfinia-sdk-ios"
-    static let libraryVersion = "1.0.0-rc.1"
+    static let libraryVersion = "1.0.0"
 
     /// Value to send as the `X-Adfinia-SDK-Version` header.
     static var sdkVersionHeader: String {
