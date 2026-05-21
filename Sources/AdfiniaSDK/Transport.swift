@@ -1,14 +1,19 @@
 // HTTP transport. Mirrors `sdks/web/src/transport.ts`.
 //
-// - `identify` payloads → POST /api/v1/identify
-// - `track` / `page` / `screen` / `alias` → POST /api/v1/track
+// AGENT-SDK-INGEST-KAFKA (2026-05-21) — switched to the batch endpoints
+// `/api/v1/track/batch` + `/api/v1/identify/batch`. The queue already
+// batches up to 50 events; we now send them as a single batch request
+// instead of fanning out into one request per event.
+//
+// Send modes:
+//   - 1 event              → POST /api/v1/{track,identify} (legacy)
+//   - All identify (N>1)   → POST /api/v1/identify/batch
+//   - All track-like (N>1) → POST /api/v1/track/batch
+//   - Mixed batch          → one batch per kind, sequential
+//
 // - 2xx → ok
 // - 4xx → permanent (drop, do not retry)
 // - 5xx + network errors → retryable
-//
-// The endpoints are single-event today, so a batched send fans out to
-// one request per payload via async/await `withTaskGroup`. When the
-// `{batch: [...]}` endpoint lands we'll swap to a single POST.
 
 import Foundation
 
@@ -45,15 +50,24 @@ final class HttpTransport: Transport {
 
     func send(_ batch: [AdfiniaPayload]) async -> TransportResult {
         if batch.isEmpty { return .okEmpty }
+        if batch.count == 1 {
+            return await sendOne(batch[0])
+        }
+
+        // Partition into identify vs track-like.
+        var identifies: [AdfiniaPayload] = []
+        var tracks: [AdfiniaPayload] = []
+        for p in batch {
+            if p.type == .identify { identifies.append(p) }
+            else { tracks.append(p) }
+        }
 
         var results: [TransportResult] = []
-        results.reserveCapacity(batch.count)
-        // Send sequentially to keep the test surface deterministic. Real
-        // throughput is dominated by the 5s flush cadence, not per-event
-        // parallelism, so this is the right trade-off until the batch
-        // endpoint lands.
-        for payload in batch {
-            results.append(await sendOne(payload))
+        if !identifies.isEmpty {
+            results.append(await sendBatch(path: "/api/v1/identify/batch", payloads: identifies))
+        }
+        if !tracks.isEmpty {
+            results.append(await sendBatch(path: "/api/v1/track/batch", payloads: tracks))
         }
 
         var ok = true
@@ -70,6 +84,45 @@ final class HttpTransport: Transport {
             }
         }
         return TransportResult(ok: ok, permanent: permanent, status: status, resolvedCustomerId: resolvedCustomerId)
+    }
+
+    private func sendBatch(path: String, payloads: [AdfiniaPayload]) async -> TransportResult {
+        guard let url = URL(string: host + path) else {
+            return TransportResult(ok: false, permanent: true, status: nil, resolvedCustomerId: nil)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(writeKey)", forHTTPHeaderField: "Authorization")
+
+        let encoder = JSONEncoder()
+        let body: Data
+        do {
+            if path.contains("identify") {
+                let wires = payloads.map { toIdentifyWire($0) }
+                body = try encoder.encode(AdfiniaIdentifyBatchWire(events: wires))
+            } else {
+                let wires = payloads.map { toTrackWire($0) }
+                body = try encoder.encode(AdfiniaTrackBatchWire(events: wires))
+            }
+        } catch {
+            return TransportResult(ok: false, permanent: true, status: nil, resolvedCustomerId: nil)
+        }
+        request.httpBody = body
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return TransportResult(ok: false, permanent: false, status: nil, resolvedCustomerId: nil)
+            }
+            if (200...299).contains(http.statusCode) {
+                return TransportResult(ok: true, permanent: false, status: http.statusCode, resolvedCustomerId: nil)
+            }
+            let permanent = (400...499).contains(http.statusCode)
+            return TransportResult(ok: false, permanent: permanent, status: http.statusCode, resolvedCustomerId: nil)
+        } catch {
+            return TransportResult(ok: false, permanent: false, status: nil, resolvedCustomerId: nil)
+        }
     }
 
     private func sendOne(_ payload: AdfiniaPayload) async -> TransportResult {
@@ -170,6 +223,16 @@ final class HttpTransport: Transport {
     func _toTrackWireForTests(_ p: AdfiniaPayload) -> AdfiniaTrackWire {
         toTrackWire(p)
     }
+}
+
+/// Batch wire shapes — single-field envelopes the API expects on
+/// `/api/v1/{track,identify}/batch`.
+struct AdfiniaTrackBatchWire: Encodable {
+    let events: [AdfiniaTrackWire]
+}
+
+struct AdfiniaIdentifyBatchWire: Encodable {
+    let events: [AdfiniaIdentifyWire]
 }
 
 /// Helper so test code can build a private `URLSession` with a stub

@@ -144,9 +144,15 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(context?["message_id"], "msg")
     }
 
-    func testRoutesIdentifyEventsToIdentifyEndpoint() async throws {
+    // AGENT-SDK-INGEST-KAFKA (2026-05-21) — mixed batches now hit the
+    // /batch endpoints, one request per kind, instead of one request per
+    // event. The resolvedCustomerId field is no longer parsed from the
+    // batch endpoint (the server doesn't echo it for identify-batch
+    // because the batch is async); the SDK falls back to its own
+    // anonymous_id until the response from a subsequent single identify.
+    func testRoutesIdentifyEventsToIdentifyBatchEndpoint() async throws {
         StubURLProtocol.setResponse { _ in
-            .init(status: 200, body: Data(#"{"customer_id":"uuid-server","created":true}"#.utf8))
+            .init(status: 202, body: Data(#"{"accepted":1,"rejected":0,"batch_id":"b"}"#.utf8))
         }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
         let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
@@ -157,20 +163,21 @@ final class TransportTests: XCTestCase {
             customerId: "cust_42",
             traits: ["plan": .string("growth")]
         )
-        let res = await t.send([buildEvent(event: "boot"), identifyEvent])
+        let res = await t.send([buildEvent(event: "boot"), buildEvent(event: "boot2"), identifyEvent])
         XCTAssertTrue(res.ok)
         let urls = StubURLProtocol.requestLog.map { $0.url?.absoluteString ?? "" }
-        XCTAssertTrue(urls.contains("https://events.adfinia.com/api/v1/track"))
-        XCTAssertTrue(urls.contains("https://events.adfinia.com/api/v1/identify"))
+        // Batch endpoints — one call per kind.
+        XCTAssertTrue(urls.contains("https://events.adfinia.com/api/v1/track/batch"))
+        XCTAssertTrue(urls.contains("https://events.adfinia.com/api/v1/identify/batch"))
 
-        let identifyReq = StubURLProtocol.requestLog.first { $0.url?.path == "/api/v1/identify" }
+        let identifyReq = StubURLProtocol.requestLog.first { $0.url?.path == "/api/v1/identify/batch" }
         let body = try XCTUnwrap(identifyReq?.httpBody)
         let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
-        XCTAssertEqual(parsed?["customer_id"] as? String, "cust_42")
-        let traits = parsed?["traits"] as? [String: Any]
+        let events = parsed?["events"] as? [[String: Any]]
+        XCTAssertEqual(events?.count, 1)
+        XCTAssertEqual(events?[0]["customer_id"] as? String, "cust_42")
+        let traits = events?[0]["traits"] as? [String: Any]
         XCTAssertEqual(traits?["plan"] as? String, "growth")
-
-        XCTAssertEqual(res.resolvedCustomerId, "uuid-server")
     }
 
     func testSynthesisesEventNameForPageScreenAlias() async throws {
@@ -182,16 +189,43 @@ final class TransportTests: XCTestCase {
             buildEvent(type: .screen, event: ""),
             buildEvent(type: .alias, event: "", previousId: "cust_old")
         ])
-        let bodies = StubURLProtocol.requestLog.compactMap { req -> [String: Any]? in
-            guard let data = req.httpBody else { return nil }
-            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        }
-        XCTAssertEqual(bodies.count, 3)
-        XCTAssertEqual(bodies[0]["event_name"] as? String, "$page_viewed")
-        XCTAssertEqual(bodies[1]["event_name"] as? String, "$screen_viewed")
-        XCTAssertEqual(bodies[2]["event_name"] as? String, "$alias")
-        let aliasProps = bodies[2]["properties"] as? [String: Any]
+        // All three land in one /track/batch request.
+        XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
+        let req = StubURLProtocol.requestLog[0]
+        XCTAssertEqual(req.url?.path, "/api/v1/track/batch")
+        let body = try XCTUnwrap(req.httpBody)
+        let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let events = parsed?["events"] as? [[String: Any]]
+        XCTAssertEqual(events?.count, 3)
+        XCTAssertEqual(events?[0]["event_name"] as? String, "$page_viewed")
+        XCTAssertEqual(events?[1]["event_name"] as? String, "$screen_viewed")
+        XCTAssertEqual(events?[2]["event_name"] as? String, "$alias")
+        let aliasProps = events?[2]["properties"] as? [String: Any]
         XCTAssertEqual(aliasProps?["previous_id"] as? String, "cust_old")
+    }
+
+    // AGENT-SDK-INGEST-KAFKA (2026-05-21) — multi-event track batch goes
+    // to the batch endpoint as a single request.
+    func testMultiEventTrackBatchUsesBatchEndpoint() async throws {
+        StubURLProtocol.setResponse { _ in
+            .init(status: 202, body: Data(#"{"accepted":3,"rejected":0,"batch_id":"b1"}"#.utf8))
+        }
+        let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
+        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        let res = await t.send([
+            buildEvent(event: "a"),
+            buildEvent(event: "b"),
+            buildEvent(event: "c"),
+        ])
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
+        let req = StubURLProtocol.requestLog[0]
+        XCTAssertEqual(req.url?.path, "/api/v1/track/batch")
+        let body = try XCTUnwrap(req.httpBody)
+        let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let events = parsed?["events"] as? [[String: Any]]
+        XCTAssertEqual(events?.count, 3)
+        XCTAssertEqual(events?.map { $0["event_name"] as? String }, ["a", "b", "c"])
     }
 
     func testReturnsPermanentTrueOn4xx() async throws {
