@@ -1,0 +1,63 @@
+# Publish AdfiniaSDK to CocoaPods Trunk on tag push.
+#
+# Trigger: pushing a tag matching `sdk-ios-v*` (e.g. `sdk-ios-v1.0.0`).
+# SPM consumers resolve via the same Git tag (Package.swift is committed
+# to the repo) — so the single tag push covers both CocoaPods + Swift
+# Package Index.
+#
+# Founder owns the tag-push step + COCOAPODS_TRUNK_TOKEN secret.
+#
+# Safety:
+#   - Tag version (sdk-ios-vX.Y.Z) must match `s.version` in
+#     Adfinia.podspec. A mismatch fails the workflow before `pod trunk
+#     push`.
+#   - Missing COCOAPODS_TRUNK_TOKEN is logged + exit 0.
+
+name: Publish iOS SDK
+
+on:
+  push:
+    tags:
+      - 'sdk-ios-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to CocoaPods Trunk
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Install CocoaPods
+        run: gem install cocoapods --no-document
+
+      - name: Verify tag matches podspec version
+        run: |
+          TAG_REF="${GITHUB_REF#refs/tags/sdk-ios-v}"
+          POD_VERSION=$(grep -E "^\s*s\.version\s*=" Adfinia.podspec | sed -E "s/.*=\s*'([^']+)'.*/\1/")
+          if [ "$TAG_REF" != "$POD_VERSION" ]; then
+            echo "::error::Tag sdk-ios-v${TAG_REF} does not match Adfinia.podspec s.version ${POD_VERSION}"
+            exit 1
+          fi
+          echo "Tag and podspec agree on v${POD_VERSION}"
+
+      - name: Lint podspec
+        run: pod lib lint Adfinia.podspec --allow-warnings
+
+      - name: Publish to CocoaPods Trunk
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+        run: |
+          if [ -z "${COCOAPODS_TRUNK_TOKEN}" ]; then
+            echo "::warning::COCOAPODS_TRUNK_TOKEN secret is not set — skipping publish (re-tag after adding the secret)."
+            exit 0
+          fi
+          pod trunk push Adfinia.podspec --allow-warnings

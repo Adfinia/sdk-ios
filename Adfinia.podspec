@@ -30,10 +30,10 @@ Pod::Spec.new do |s|
     runtime config delivered by GET /api/v1/sdk/config.
   DESC
 
-  s.homepage         = 'https://github.com/infinia-net/adfinia-ios-sdk'
+  s.homepage         = 'https://github.com/Adfinia/sdk-ios'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
-  s.author           = { 'Infinia New Emerging Technologies' => 'engineering@adfinia.com' }
-  s.source           = { :git => 'https://github.com/infinia-net/adfinia-ios-sdk.git', :tag => "sdk-ios-v#{s.version}" }
+  s.author           = { 'Adfinia (New Emerging Technologies)' => 'engineering@adfinia.com' }
+  s.source           = { :git => 'https://github.com/Adfinia/sdk-ios.git', :tag => "sdk-ios-v#{s.version}" }
 
   s.swift_versions   = ['5.9']
 
