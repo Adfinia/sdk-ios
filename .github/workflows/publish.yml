@@ -42,7 +42,10 @@ jobs:
       - name: Verify tag matches podspec version
         run: |
           TAG_REF="${GITHUB_REF#refs/tags/sdk-ios-v}"
-          POD_VERSION=$(grep -E "^\s*s\.version\s*=" Adfinia.podspec | sed -E "s/.*=\s*'([^']+)'.*/\1/")
+          # Use POSIX [[:space:]] (NOT \s): the runner is macOS with BSD grep/sed,
+          # which don't support \s, so the old pattern left POD_VERSION as the
+          # whole line and the version check always failed.
+          POD_VERSION=$(grep -E "^[[:space:]]*s\.version[[:space:]]*=" Adfinia.podspec | head -1 | sed -E "s/.*=[[:space:]]*'([^']+)'.*/\1/")
           if [ "$TAG_REF" != "$POD_VERSION" ]; then
             echo "::error::Tag sdk-ios-v${TAG_REF} does not match Adfinia.podspec s.version ${POD_VERSION}"
             exit 1
