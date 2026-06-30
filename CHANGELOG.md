@@ -4,6 +4,19 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [Unreleased]
+
+### Changed
+- Transport routes a lone track-like event through `POST /api/v1/track/batch`
+  (a 1-element batch) instead of the single-event `POST /api/v1/track`. The
+  single-event path does not stamp the event environment from the
+  authenticating API key (it defaults to `live`), so a `adf_test_` key's solo
+  event would be mis-tagged and leak into live analytics; the batch endpoint
+  stamps it from the key. A lone `identify` still uses single
+  `POST /api/v1/identify` (it resolves `customer_id` and carries no environment
+  tag). Mirrors `@adfinia/sdk-web` 1.3.1 + `@adfinia/sdk-react-native` 1.0.1.
+  Folds into the first published release (1.0.0 is not yet on CocoaPods/SPM).
+
 ## [1.0.0] — 2026-05-22
 
 First stable release. Same content as the dev-internal-only

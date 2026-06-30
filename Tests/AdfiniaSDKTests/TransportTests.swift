@@ -122,8 +122,10 @@ final class TransportTests: XCTestCase {
         )
     }
 
+    // A lone track-like event ships as a 1-element /track/batch (NOT single
+    // /track) so the server stamps test/live from the API key.
     func testPostsTrackEventsWithBearerAuth() async throws {
-        StubURLProtocol.setResponse { _ in .init(status: 202, body: Data("{}".utf8)) }
+        StubURLProtocol.setResponse { _ in .init(status: 202, body: Data(#"{"accepted":1,"rejected":0,"batch_id":"b"}"#.utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
         let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
 
@@ -131,17 +133,34 @@ final class TransportTests: XCTestCase {
         XCTAssertTrue(res.ok)
         XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
         let req = StubURLProtocol.requestLog[0]
-        XCTAssertEqual(req.url?.absoluteString, "https://events.adfinia.com/api/v1/track")
+        XCTAssertEqual(req.url?.absoluteString, "https://events.adfinia.com/api/v1/track/batch")
         XCTAssertEqual(req.httpMethod, "POST")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer pk_test_x")
         let body = try XCTUnwrap(req.httpBody)
         let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
-        XCTAssertEqual(parsed?["event_name"] as? String, "Order Completed")
-        XCTAssertEqual(parsed?["anonymous_id"] as? String, "anon")
-        XCTAssertNotNil(parsed?["occurred_at"])
-        let context = parsed?["context"] as? [String: String]
+        let events = try XCTUnwrap(parsed?["events"] as? [[String: Any]])
+        XCTAssertEqual(events.count, 1)
+        let ev = events[0]
+        XCTAssertEqual(ev["event_name"] as? String, "Order Completed")
+        XCTAssertEqual(ev["anonymous_id"] as? String, "anon")
+        XCTAssertNotNil(ev["occurred_at"])
+        let context = ev["context"] as? [String: String]
         XCTAssertEqual(context?["library.name"], "adfinia-sdk-ios")
         XCTAssertEqual(context?["message_id"], "msg")
+    }
+
+    // A lone identify STILL uses the single /identify endpoint (it resolves
+    // customer_id and carries no environment tag) — locks the surgical split.
+    func testLoneIdentifyUsesSingleIdentifyEndpoint() async throws {
+        StubURLProtocol.setResponse { _ in .init(status: 202, body: Data(#"{"customer_id":"cust_9"}"#.utf8)) }
+        let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
+        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+
+        let res = await t.send([buildEvent(type: .identify, event: "", customerId: "cust_9")])
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
+        XCTAssertEqual(StubURLProtocol.requestLog[0].url?.absoluteString, "https://events.adfinia.com/api/v1/identify")
+        XCTAssertEqual(res.resolvedCustomerId, "cust_9")
     }
 
     // AGENT-SDK-INGEST-KAFKA (2026-05-21) — mixed batches now hit the
@@ -270,6 +289,6 @@ final class TransportTests: XCTestCase {
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
         let t = HttpTransport(host: "https://events.adfinia.com/", writeKey: "pk", session: session)
         _ = await t.send([buildEvent()])
-        XCTAssertEqual(StubURLProtocol.requestLog.first?.url?.absoluteString, "https://events.adfinia.com/api/v1/track")
+        XCTAssertEqual(StubURLProtocol.requestLog.first?.url?.absoluteString, "https://events.adfinia.com/api/v1/track/batch")
     }
 }

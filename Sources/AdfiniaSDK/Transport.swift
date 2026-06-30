@@ -6,10 +6,19 @@
 // instead of fanning out into one request per event.
 //
 // Send modes:
-//   - 1 event              → POST /api/v1/{track,identify} (legacy)
+//   - 1 identify           → POST /api/v1/identify (resolves customer_id)
+//   - 1 track-like         → POST /api/v1/track/batch (1-element batch)
 //   - All identify (N>1)   → POST /api/v1/identify/batch
 //   - All track-like (N>1) → POST /api/v1/track/batch
 //   - Mixed batch          → one batch per kind, sequential
+//
+// A lone track-like event goes through /track/batch, NOT single /track: the
+// single-event /track path does not stamp the event environment from the
+// authenticating API key (it defaults to 'live'), so a `adf_test_` key's event
+// would be mis-tagged and leak into live analytics. The batch endpoint stamps
+// environment from the key. A lone identify keeps the single /identify endpoint
+// because it resolves customer_id (resolvedCustomerId) and carries no
+// environment tag. (Mirrors @adfinia/sdk-web 1.3.1 + sdk-react-native 1.0.1.)
 //
 // - 2xx → ok
 // - 4xx → permanent (drop, do not retry)
@@ -50,7 +59,11 @@ final class HttpTransport: Transport {
 
     func send(_ batch: [AdfiniaPayload]) async -> TransportResult {
         if batch.isEmpty { return .okEmpty }
-        if batch.count == 1 {
+        // Lone identify keeps the single endpoint (resolves customer_id, no
+        // environment tag). A lone track-like event falls through to the batch
+        // path below so the server stamps test/live from the API key — see the
+        // file header for why single /track is not used.
+        if batch.count == 1, batch[0].type == .identify {
             return await sendOne(batch[0])
         }
 
