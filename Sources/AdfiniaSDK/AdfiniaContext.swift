@@ -3,10 +3,13 @@
 // device model) where the web SDK would put page / referrer.
 
 import Foundation
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(WatchKit)
+// On modern watchOS `canImport(UIKit)` is TRUE, so a `canImport(UIKit)`-first
+// guard imports UIKit and never imports WatchKit — but the device path below
+// needs WKInterfaceDevice (WatchKit). Gate watchOS explicitly first.
+#if os(watchOS)
 import WatchKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 enum AdfiniaContextBuilder {
