@@ -4,7 +4,7 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
-## [Unreleased]
+## [1.0.1] — 2026-07-01
 
 ### Fixed
 - Default ingest `host` is now `https://api.adfinia.com` (was

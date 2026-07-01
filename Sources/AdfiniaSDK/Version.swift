@@ -16,7 +16,7 @@ import Foundation
 
 enum AdfiniaVersion {
     static let libraryName = "adfinia-sdk-ios"
-    static let libraryVersion = "1.0.0"
+    static let libraryVersion = "1.0.1"
 
     /// Value to send as the `X-Adfinia-SDK-Version` header.
     static var sdkVersionHeader: String {
