@@ -126,7 +126,7 @@ Task { await Adfinia.flush() }
 ```swift
 AdfiniaConfig(
     writeKey: "pk_live_...",                       // required
-    host: "https://events.adfinia.com",            // override for self-hosted
+    host: "https://api.adfinia.com",               // override for self-hosted
     debug: false,
     consent: { /* return Bool */ },
     flushAt: 50,

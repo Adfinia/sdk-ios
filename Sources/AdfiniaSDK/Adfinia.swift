@@ -39,7 +39,7 @@ public struct AdfiniaConfig {
     /// `pk_test_`. Safe to bundle in client-side code.
     public let writeKey: String
 
-    /// Override the ingest host. Defaults to `https://events.adfinia.com`.
+    /// Override the ingest host. Defaults to `https://api.adfinia.com`.
     /// Self-hosted tenants point this at their own ingress.
     public let host: String
 
@@ -62,7 +62,7 @@ public struct AdfiniaConfig {
 
     public init(
         writeKey: String,
-        host: String = "https://events.adfinia.com",
+        host: String = "https://api.adfinia.com",
         debug: Bool = false,
         consent: AdfiniaConsent? = nil,
         flushAt: Int = 50,
