@@ -26,6 +26,7 @@ public final class AdfiniaClient {
     private var queue: EventQueue?
     private var transport: Transport?
     private var initialised = false
+    private var aliasDeprecationLogged = false
     private let now: () -> Date
 
     public convenience init() {
@@ -183,16 +184,20 @@ public final class AdfiniaClient {
         ))
     }
 
+    @available(*, deprecated, message: "alias() is a no-op; anonymous sessions are promoted automatically by identify()")
     public func alias(_ newId: String, previousId: String? = nil) {
-        guard guardCall("alias") else { return }
-        guard !newId.isEmpty else {
-            log("alias() called without a newId — dropped")
-            return
+        // Intentional no-op. The server has no alias/previous_id handler
+        // (it only processes track + identify), so alias() never produced
+        // any effect. Anonymous-to-known promotion happens automatically
+        // via identify() (the SDK includes the live anonymous_id in the
+        // identify event). We do NOT enqueue or transmit anything here.
+        stateLock.lock()
+        let alreadyLogged = aliasDeprecationLogged
+        aliasDeprecationLogged = true
+        stateLock.unlock()
+        if !alreadyLogged {
+            log("alias() is deprecated and is now a no-op; anonymous sessions are promoted automatically by identify()")
         }
-        guard let identity = identityStore else { return }
-        let prev = previousId ?? identity.customerId ?? identity.anonymousId
-        enqueue(makeAliasPayload(newId: newId, previousId: prev))
-        identity.identify(customerId: newId, traits: nil, anonymousId: nil)
     }
 
     public func reset() {
@@ -244,21 +249,6 @@ public final class AdfiniaClient {
             previousId: previousId,
             properties: properties,
             traits: traits,
-            context: AdfiniaContextBuilder.build(),
-            sentAt: ISO8601DateFormatter.adfinia.string(from: now()),
-            messageId: UUIDv7.generate()
-        )
-    }
-
-    private func makeAliasPayload(newId: String, previousId: String) -> AdfiniaPayload {
-        AdfiniaPayload(
-            type: .alias,
-            event: nil,
-            customerId: newId,
-            anonymousId: identityStore?.anonymousId ?? "",
-            previousId: previousId,
-            properties: nil,
-            traits: nil,
             context: AdfiniaContextBuilder.build(),
             sentAt: ISO8601DateFormatter.adfinia.string(from: now()),
             messageId: UUIDv7.generate()

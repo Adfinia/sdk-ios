@@ -199,28 +199,26 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(traits?["plan"] as? String, "growth")
     }
 
-    func testSynthesisesEventNameForPageScreenAlias() async throws {
+    // alias was removed as a wire type in 1.1.0; page + screen still
+    // synthesise their event names.
+    func testSynthesisesEventNameForPageScreen() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 202, body: Data("{}".utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
         let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
         _ = await t.send([
             buildEvent(type: .page, event: ""),
-            buildEvent(type: .screen, event: ""),
-            buildEvent(type: .alias, event: "", previousId: "cust_old")
+            buildEvent(type: .screen, event: "")
         ])
-        // All three land in one /track/batch request.
+        // Both land in one /track/batch request.
         XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
         let req = StubURLProtocol.requestLog[0]
         XCTAssertEqual(req.url?.path, "/api/v1/track/batch")
         let body = try XCTUnwrap(req.httpBody)
         let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
         let events = parsed?["events"] as? [[String: Any]]
-        XCTAssertEqual(events?.count, 3)
+        XCTAssertEqual(events?.count, 2)
         XCTAssertEqual(events?[0]["event_name"] as? String, "$page_viewed")
         XCTAssertEqual(events?[1]["event_name"] as? String, "$screen_viewed")
-        XCTAssertEqual(events?[2]["event_name"] as? String, "$alias")
-        let aliasProps = events?[2]["properties"] as? [String: Any]
-        XCTAssertEqual(aliasProps?["previous_id"] as? String, "cust_old")
     }
 
     // AGENT-SDK-INGEST-KAFKA (2026-05-21) — multi-event track batch goes

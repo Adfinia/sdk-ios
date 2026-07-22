@@ -215,20 +215,12 @@ final class HttpTransport: Transport {
         switch type {
         case .page: return "$page_viewed"
         case .screen: return "$screen_viewed"
-        case .alias: return "$alias"
         default: return "$unknown"
         }
     }
 
-    /// For alias events, carry the previous_id in properties so the server's
-    /// identity-graph stitching picks it up.
     private func mergedProperties(_ p: AdfiniaPayload) -> [String: AdfiniaJSONValue]? {
-        if p.type == .alias, let prev = p.previousId {
-            var props = p.properties ?? [:]
-            props["previous_id"] = .string(prev)
-            return props
-        }
-        return p.properties
+        p.properties
     }
 
     // MARK: - Internal helpers exposed for tests

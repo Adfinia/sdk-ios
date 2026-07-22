@@ -9,7 +9,7 @@
 import Foundation
 
 enum AdfiniaPayloadType: String, Codable {
-    case track, identify, page, screen, alias
+    case track, identify, page, screen
 }
 
 /// JSON-safe value wrapper. The Swift `Codable` system can't encode

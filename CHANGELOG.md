@@ -4,6 +4,23 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.1.0] — 2026-07-22
+
+### Deprecated
+- **`alias()`** (both `Adfinia.alias(_:previousId:)` and
+  `AdfiniaClient.alias(_:previousId:)`) is deprecated and is now a true
+  no-op. The backend has no alias/`previous_id` handler (it only processes
+  `track` + `identify`), so `alias()` never produced any server-side effect;
+  keeping it as a live call misled a customer. Anonymous-to-known promotion
+  already happens automatically via `identify()`: the SDK includes the live
+  `anonymous_id` in every identify event, so the server stitches the identity
+  graph without an explicit alias call. The method now emits a one-time
+  deprecation log (via the existing debug logger) on first call and enqueues
+  or transmits nothing. The signature is unchanged, so existing callers still
+  compile; they will see a Swift `deprecated` warning at the call site.
+  The `$alias` wire mapping (Transport) and the `.alias` payload case
+  (AdfiniaPayload) were removed, so no alias event can be produced.
+
 ## [1.0.1] — 2026-07-01
 
 ### Fixed
