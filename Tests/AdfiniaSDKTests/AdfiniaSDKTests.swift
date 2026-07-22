@@ -68,6 +68,79 @@ final class AdfiniaSDKTests: XCTestCase {
         XCTAssertEqual(transport.sentEvents[1].customerId, "cust_42")
     }
 
+    func testOptOutSingleEmitsOneConsentEventWithChannelsAsArray() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.optOut("email")
+        let ok = await waitUntil { transport.sentEvents.count == 1 }
+        XCTAssertTrue(ok)
+        let ev = transport.sentEvents[0]
+        XCTAssertEqual(ev.type, .track)
+        XCTAssertEqual(ev.event, "consent_updated")
+        XCTAssertEqual(ev.properties?["channels"], .array([.string("email")]))
+        XCTAssertEqual(ev.properties?["status"], .string("opted_out"))
+    }
+
+    func testOptInArrayNormalizesChannelsAndKeepsThemAnArray() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.optIn(["  Email ", "WhatsApp", "SMS"])
+        let ok = await waitUntil { transport.sentEvents.count == 1 }
+        XCTAssertTrue(ok)
+        XCTAssertEqual(
+            transport.sentEvents[0].properties?["channels"],
+            .array([.string("email"), .string("whatsapp"), .string("sms")])
+        )
+        XCTAssertEqual(transport.sentEvents[0].properties?["status"], .string("opted_in"))
+    }
+
+    func testSetConsentAcceptsUnknownOpenChannelStrings() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.setConsent(["rcs", "voice", "app_notification"], status: "opted_in")
+        let ok = await waitUntil { transport.sentEvents.count == 1 }
+        XCTAssertTrue(ok)
+        XCTAssertEqual(
+            transport.sentEvents[0].properties?["channels"],
+            .array([.string("rcs"), .string("voice"), .string("app_notification")])
+        )
+    }
+
+    func testInvalidConsentStatusSendsNothing() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.setConsent("email", status: "maybe")
+        c.setConsent("sms", status: "nope")
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(transport.sentEvents.count, 0)
+    }
+
+    func testEmptyConsentChannelListIsASoftNoOp() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.optOut("   ")
+        c.optIn([])
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(transport.sentEvents.count, 0)
+    }
+
+    func testConsentEventCarriesCurrentIdentity() async throws {
+        let transport = CapturingTransport()
+        let c = makeClient(transport: transport)
+        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 2, flushIntervalSeconds: 60))
+        c.identify("cust_42")
+        c.optOut("whatsapp")
+        let ok = await waitUntil { transport.sentEvents.count == 2 }
+        XCTAssertTrue(ok)
+        let consent = transport.sentEvents.first { $0.event == "consent_updated" }
+        XCTAssertEqual(consent?.customerId, "cust_42")
+    }
+
     // alias() is deprecated (1.1.0) and is now a true no-op: it enqueues
     // and transmits nothing, and does not mutate identity. Anonymous-to-known
     // promotion happens via identify() instead.
@@ -155,6 +228,7 @@ final class AdfiniaSDKTests: XCTestCase {
         c.track("Order Completed")
         c.identify("cust_42")
         c.screen("Pricing")
+        c.optOut(["email", "sms"])
         c.alias("new")
         c.reset()
         // No assertion — we just want to confirm no crash, no enqueue.

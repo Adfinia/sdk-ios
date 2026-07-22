@@ -4,6 +4,30 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.1.1] — 2026-07-22
+
+### Added - write-only multi-channel consent API
+- New methods `setConsent(_:status:)`, `optIn(_:)`, and `optOut(_:)` on both the
+  static `Adfinia` enum and `AdfiniaClient`. Each takes a `[String]` form and a
+  single-`String` convenience overload; `status` is `"opted_in"` or
+  `"opted_out"`.
+- Channels are **open strings**, not an enum. The backend owns the
+  valid-channel registry (email/whatsapp/sms/push today, extensible to
+  rcs/voice/app_notification later); the SDK forwards whatever channel value it
+  is given (trim + lowercase only) so new backend channels work with no SDK
+  release. Unknown channels are never rejected.
+- **Write-only:** there is intentionally no `getConsent()` / read method.
+- Emits exactly one event: `track("consent_updated", properties: ["channels":
+  [...], "status": status])`. `channels` is ALWAYS an array on the wire, even
+  for a single channel. The event flows through the existing guard / enqueue /
+  transport path; the backend `ConsentSink` consumes it.
+- Never throws. An invalid `status` logs a one-time debug message and sends
+  nothing; an empty channel list is a soft no-op.
+
+### Changed
+- `AdfiniaVersion.libraryVersion` -> `1.1.1`; `X-Adfinia-SDK-Version` reports
+  `adfinia-sdk-ios@1.1.1`; podspec `s.version` -> `1.1.1`.
+
 ## [1.1.0] — 2026-07-22
 
 ### Deprecated

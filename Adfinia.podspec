@@ -21,7 +21,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'Adfinia'
-  s.version          = '1.1.0'
+  s.version          = '1.1.1'
   s.summary          = 'Official Adfinia SDK for iOS — first-party event + identify ingestion.'
   s.description      = <<-DESC
     Adfinia client SDK for iOS / macOS / tvOS / watchOS. Drop-in event +

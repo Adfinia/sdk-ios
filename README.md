@@ -116,6 +116,9 @@ Task { await Adfinia.flush() }
 | `Adfinia.identify(arg, traits?)` | Struct form (`AdfiniaIdentifyArg`). |
 | `Adfinia.track(event, properties?)` | Event-name + props. |
 | `Adfinia.screen(name?, properties?)` | Mobile analogue of `page()`. |
+| `Adfinia.setConsent(channels, status:)` | Write-only consent. `channels` is `[String]` (or a single `String` overload); `status` is `"opted_in"` or `"opted_out"`. Channels are open strings (not an enum) - the backend owns the valid-channel registry. Emits one `consent_updated` event with `channels` always an array. No read method by design. |
+| `Adfinia.optIn(channels)` | Shorthand for `setConsent(channels, status: "opted_in")`. |
+| `Adfinia.optOut(channels)` | Shorthand for `setConsent(channels, status: "opted_out")`. |
 | `Adfinia.alias(newId, previousId?)` | Deprecated (1.1.0); no-op. Anonymous sessions are promoted automatically by `identify()`. |
 | `Adfinia.reset()` | Logout — mints a new anonymous_id. |
 | `Adfinia.flush()` | `async`. Returns when the in-flight batch resolves. |

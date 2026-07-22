@@ -113,6 +113,39 @@ public enum Adfinia {
         shared.screen(name, properties: properties)
     }
 
+    /// Record a write-only consent decision for one or more channels. `status`
+    /// is `"opted_in"` or `"opted_out"`. Channels are open strings (not an
+    /// enum) — the backend owns the valid-channel registry. Emits one
+    /// `consent_updated` event with `channels` always an array. Never throws.
+    public static func setConsent(_ channels: [String], status: String) {
+        shared.setConsent(channels, status: status)
+    }
+
+    /// setConsent for a single channel.
+    public static func setConsent(_ channel: String, status: String) {
+        shared.setConsent(channel, status: status)
+    }
+
+    /// Shorthand for setConsent(channels, status: "opted_in").
+    public static func optIn(_ channels: [String]) {
+        shared.optIn(channels)
+    }
+
+    /// Shorthand for setConsent(channel, status: "opted_in").
+    public static func optIn(_ channel: String) {
+        shared.optIn(channel)
+    }
+
+    /// Shorthand for setConsent(channels, status: "opted_out").
+    public static func optOut(_ channels: [String]) {
+        shared.optOut(channels)
+    }
+
+    /// Shorthand for setConsent(channel, status: "opted_out").
+    public static func optOut(_ channel: String) {
+        shared.optOut(channel)
+    }
+
     @available(*, deprecated, message: "alias() is a no-op; anonymous sessions are promoted automatically by identify()")
     public static func alias(_ newId: String, previousId: String? = nil) {
         shared.alias(newId, previousId: previousId)
