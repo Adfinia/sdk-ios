@@ -1,0 +1,9 @@
+# SwiftLint config. CI runs `swiftlint --strict`, so any violation fails the
+# build. The shipped SDK source (Sources/) is linted strictly. Test files use
+# idiomatic short identifiers (q, ok, i, s1) that trip the default
+# identifier_name min-length rule; the Tests dir is excluded from linting.
+# Added 2026-07-22 to fix the CI SwiftLint job (identifier_name violations in
+# Tests/AdfiniaSDKTests, EventQueueTests, IdentityStoreTests).
+excluded:
+  - Tests
+  - .build
