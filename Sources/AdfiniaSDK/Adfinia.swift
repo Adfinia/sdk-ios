@@ -113,6 +113,7 @@ public enum Adfinia {
         shared.screen(name, properties: properties)
     }
 
+    @available(*, deprecated, message: "alias() is a no-op; anonymous sessions are promoted automatically by identify()")
     public static func alias(_ newId: String, previousId: String? = nil) {
         shared.alias(newId, previousId: previousId)
     }

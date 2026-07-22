@@ -68,17 +68,24 @@ final class AdfiniaSDKTests: XCTestCase {
         XCTAssertEqual(transport.sentEvents[1].customerId, "cust_42")
     }
 
-    func testAliasEmitsAliasEventAndUpdatesIdentity() async throws {
+    // alias() is deprecated (1.1.0) and is now a true no-op: it enqueues
+    // and transmits nothing, and does not mutate identity. Anonymous-to-known
+    // promotion happens via identify() instead.
+    func testAliasIsANoOpAndEmitsNoEvent() async throws {
         let transport = CapturingTransport()
         let c = makeClient(transport: transport)
         c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        c.identify("cust_existing")
+        let sentAfterIdentify = await waitUntil { transport.sentEvents.count == 1 }
+        XCTAssertTrue(sentAfterIdentify)
+        let countBefore = transport.sentEvents.count
         c.alias("cust_new", previousId: "cust_old")
-        let ok = await waitUntil { transport.sentEvents.count == 1 }
-        XCTAssertTrue(ok)
-        XCTAssertEqual(transport.sentEvents[0].type, .alias)
-        XCTAssertEqual(transport.sentEvents[0].customerId, "cust_new")
-        XCTAssertEqual(transport.sentEvents[0].previousId, "cust_old")
-        XCTAssertEqual(c._identityStore()?.customerId, "cust_new")
+        // Give any (erroneous) enqueue a chance to flush; expect none.
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(transport.sentEvents.count, countBefore)
+        XCTAssertEqual(c._queueCount(), 0)
+        // Identity is untouched by alias().
+        XCTAssertEqual(c._identityStore()?.customerId, "cust_existing")
     }
 
     func testResetMintsNewAnonymousId() {

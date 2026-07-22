@@ -2,7 +2,7 @@
 
 Official Adfinia SDK for iOS, macOS, tvOS, and watchOS. Same public surface as `@adfinia/sdk-web` — if you've integrated the web SDK, you already know this one.
 
-- First-party event ingest (`track`, `identify`, `screen`, `alias`).
+- First-party event ingest (`track`, `identify`, `screen`).
 - UUIDv7 message IDs, time-ordered for server-side sorting.
 - Batched POSTs (5 seconds or 50 events, whichever fires first).
 - Exponential-backoff retries on 5xx + network failures (1s → 30s cap).
@@ -100,7 +100,6 @@ Adfinia.track("Order Completed", properties: [
 ])
 
 Adfinia.screen("Pricing", properties: ["tier_highlighted": "growth"])
-Adfinia.alias("cust_42")
 Adfinia.reset()
 
 Task { await Adfinia.flush() }
@@ -117,7 +116,7 @@ Task { await Adfinia.flush() }
 | `Adfinia.identify(arg, traits?)` | Struct form (`AdfiniaIdentifyArg`). |
 | `Adfinia.track(event, properties?)` | Event-name + props. |
 | `Adfinia.screen(name?, properties?)` | Mobile analogue of `page()`. |
-| `Adfinia.alias(newId, previousId?)` | Link anonymous → known customer. |
+| `Adfinia.alias(newId, previousId?)` | Deprecated (1.1.0); no-op. Anonymous sessions are promoted automatically by `identify()`. |
 | `Adfinia.reset()` | Logout — mints a new anonymous_id. |
 | `Adfinia.flush()` | `async`. Returns when the in-flight batch resolves. |
 
