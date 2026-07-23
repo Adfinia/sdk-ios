@@ -15,6 +15,10 @@ struct ClientHooks {
     var store: AdfiniaKVStore?
     var now: (() -> Date)?
     var loggerOverride: EventQueueDebugLogger?
+    /// Injected control-plane transport for the push-register + inbox paths.
+    /// Nil in production (built from config at `initialize()`); tests pass a
+    /// stub so the register payload + inbox client can be asserted offline.
+    var controlPlane: ControlPlaneTransport?
 }
 
 public final class AdfiniaClient {
@@ -25,6 +29,7 @@ public final class AdfiniaClient {
     private var identityStore: IdentityStore?
     private var queue: EventQueue?
     private var transport: Transport?
+    private var controlPlane: ControlPlaneTransport?
     private var initialised = false
     private var aliasDeprecationLogged = false
     private var consentStatusLogged = false
@@ -37,7 +42,14 @@ public final class AdfiniaClient {
     init(hooks: ClientHooks) {
         self.hooks = hooks
         self.now = hooks.now ?? { Date() }
+        self.controlPlane = hooks.controlPlane
     }
+
+    /// In-app notification inbox. `Adfinia.notifications.list(...)` etc. The
+    /// binding is stable across `initialize()`; each call reads the live
+    /// control-plane transport, so calling before `initialize()` cleanly
+    /// returns a `.notInitialised` result rather than crashing.
+    public private(set) lazy var notifications: AdfiniaNotifications = AdfiniaNotifications(client: self)
 
     // MARK: - Public surface
 
@@ -60,6 +72,12 @@ public final class AdfiniaClient {
         let logger = hooks.loggerOverride ?? PrintDebugLogger(enabled: config.debug)
         let transport = hooks.transport ?? HttpTransport(host: config.host, writeKey: config.writeKey)
         self.transport = transport
+        // Control-plane transport (push register + inbox). Reuse an injected
+        // stub if the hooks carry one; otherwise build from the same host +
+        // writeKey the event transport uses.
+        if self.controlPlane == nil {
+            self.controlPlane = HttpControlPlaneClient(host: config.host, writeKey: config.writeKey)
+        }
         let queueCfg = EventQueueConfig(
             store: store,
             transport: transport,
@@ -217,6 +235,39 @@ public final class AdfiniaClient {
     func _identityStore() -> IdentityStore? { identityStore }
     func _queueCount() -> Int { queue?.count ?? 0 }
     func _drainQueue() -> [AdfiniaPayload] { queue?.drainAll() ?? [] }
+
+    // MARK: - Internal accessors for the push + inbox extensions
+
+    /// The live control-plane transport, or nil before `initialize()`.
+    var controlPlaneTransport: ControlPlaneTransport? {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return controlPlane
+    }
+
+    /// True once `initialize()` has run.
+    var isInitialised: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return initialised
+    }
+
+    /// Current identity triple used to attach to a push registration, mirroring
+    /// the React Native SDK's identity bag. `deviceId` doubles as the stable
+    /// per-install id (the anonymous_id) so the backend can de-dupe tokens.
+    func pushIdentityBag() -> (customerId: String?, anonymousId: String)? {
+        guard let identity = identityStore else { return nil }
+        return (identity.customerId, identity.anonymousId)
+    }
+
+    /// The contact identifier the inbox endpoints key on. Prefers the resolved
+    /// `customer_id`, falling back to the anonymous_id, so an inbox call works
+    /// before and after `identify()`.
+    func inboxContactId() -> String? {
+        guard let identity = identityStore else { return nil }
+        return identity.customerId ?? identity.anonymousId
+    }
+
+    /// Debug-log passthrough for the extensions (respects `config.debug`).
+    func debugLog(_ message: String) { log(message) }
 
     // MARK: - Private
 

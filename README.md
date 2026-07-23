@@ -122,6 +122,13 @@ Task { await Adfinia.flush() }
 | `Adfinia.alias(newId, previousId?)` | Deprecated (1.1.0); no-op. Anonymous sessions are promoted automatically by `identify()`. |
 | `Adfinia.reset()` | Logout — mints a new anonymous_id. |
 | `Adfinia.flush()` | `async`. Returns when the in-flight batch resolves. |
+| `Adfinia.registerForPush(deviceToken:)` | Register the APNs device token (`Data`) from the app-delegate callback. Hex-encodes + `POST /push/register`; emits `push_registered`. |
+| `Adfinia.unregisterForPush(deviceToken:)` | Remove the token (logout / notifications-off). |
+| `Adfinia.requestPushAuthorization(options:completion:)` | Optional convenience prompt via `UNUserNotificationCenter`. Token-in path is primary. |
+| `Adfinia.notifications.list(status:)` | In-app inbox page. `status` is `.all` / `.unread` / `.read`. |
+| `Adfinia.notifications.markRead(_:)` | Mark one notification read. |
+| `Adfinia.notifications.markAllRead()` | Mark all unread read; returns the count. |
+| `Adfinia.notifications.stream()` | Live SSE `AsyncStream<AdfiniaNotification>` (iOS 15+). |
 
 ### `AdfiniaConfig`
 
@@ -135,6 +142,61 @@ AdfiniaConfig(
     flushIntervalSeconds: 5,
     maxQueueSize: 1000
 )
+```
+
+---
+
+## Push notifications
+
+The SDK forwards the APNs device token your app receives — it does **not** link a
+push entitlement itself, so adding the SDK never forces Push Notifications
+capability on your target. Enable the capability in your app when you want push,
+then hand the token to the SDK from the app-delegate callback:
+
+```swift
+func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+) {
+    Adfinia.registerForPush(deviceToken: deviceToken)
+}
+```
+
+To have the SDK prompt for permission and trigger registration for you:
+
+```swift
+Adfinia.requestPushAuthorization { granted, _ in
+    // On grant the SDK calls registerForRemoteNotifications(); your
+    // didRegister callback then fires and you forward the token above.
+}
+```
+
+On success the SDK `POST`s `{token, platform:"ios", device_id, app_version,
+customer_id, anonymous_id}` to `/api/v1/push/register` (the same payload shape as
+the React Native SDK) and emits a `push_registered` event. Call
+`Adfinia.unregisterForPush(deviceToken:)` on logout.
+
+---
+
+## In-app notification inbox
+
+`Adfinia.notifications` reads the tenant's in-app messages for the current
+contact (resolved from `customer_id`, else `anonymous_id`):
+
+```swift
+let result = await Adfinia.notifications.list(status: .unread)
+if case .success(let page) = result {
+    for n in page.data { print(n.title, n.body, n.read) }
+    // page.nextCursor / page.hasMore drive pagination
+}
+
+await Adfinia.notifications.markRead("notif_id")
+await Adfinia.notifications.markAllRead()
+
+// Live updates (iOS 15+):
+for await notification in Adfinia.notifications.stream() {
+    // render the incoming notification
+}
 ```
 
 ---
