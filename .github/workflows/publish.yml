@@ -63,4 +63,20 @@ jobs:
             echo "::warning::COCOAPODS_TRUNK_TOKEN secret is not set — skipping publish (re-tag after adding the secret)."
             exit 0
           fi
-          pod trunk push Adfinia.podspec --allow-warnings
+          # Tolerate re-runs / re-tags of an already-published version. CocoaPods
+          # trunk rejects a re-push of the same version with "Unable to accept
+          # duplicate entry", which is not a real failure: the pod is already
+          # live. Capture the output and treat that specific case as success so a
+          # benign re-run does not show a red workflow.
+          set +e
+          OUT=$(pod trunk push Adfinia.podspec --allow-warnings 2>&1)
+          STATUS=$?
+          echo "${OUT}"
+          if [ "${STATUS}" -ne 0 ]; then
+            if echo "${OUT}" | grep -qi "duplicate entry"; then
+              echo "::warning::Version already published to CocoaPods trunk (duplicate entry); treating as success."
+              exit 0
+            fi
+            echo "::error::pod trunk push failed."
+            exit "${STATUS}"
+          fi
