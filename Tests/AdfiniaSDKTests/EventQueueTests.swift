@@ -10,7 +10,7 @@ import XCTest
 final class EventQueueTests: XCTestCase {
     func testFlushesWhenFlushAtIsHit() async throws {
         let transport = CapturingTransport()
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: transport,
             flushAt: 2,
@@ -19,18 +19,18 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        q.enqueue(makePayload(event: "a"))
-        q.enqueue(makePayload(event: "b"))
+        queue.enqueue(makePayload(event: "a"))
+        queue.enqueue(makePayload(event: "b"))
 
-        let ok = await waitUntil { transport.calls == 1 }
-        XCTAssertTrue(ok, "expected one flush after flushAt hit")
+        let succeeded = await waitUntil { transport.calls == 1 }
+        XCTAssertTrue(succeeded, "expected one flush after flushAt hit")
         XCTAssertEqual(transport.lastBatch?.count, 2)
-        q.destroy()
+        queue.destroy()
     }
 
     func testFlushesOnInterval() async throws {
         let transport = CapturingTransport()
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: transport,
             flushAt: 100,
@@ -39,11 +39,11 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        q.enqueue(makePayload(event: "a"))
+        queue.enqueue(makePayload(event: "a"))
 
-        let ok = await waitUntil(timeout: 2) { transport.calls >= 1 }
-        XCTAssertTrue(ok, "expected interval flush within 2s")
-        q.destroy()
+        let succeeded = await waitUntil(timeout: 2) { transport.calls >= 1 }
+        XCTAssertTrue(succeeded, "expected interval flush within 2s")
+        queue.destroy()
     }
 
     func testDropsEventsOnPermanentFailure() async throws {
@@ -51,7 +51,7 @@ final class EventQueueTests: XCTestCase {
         transport.setNextResult(
             TransportResult(ok: false, permanent: true, status: 400, resolvedCustomerId: nil)
         )
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: transport,
             flushAt: 100,
@@ -60,11 +60,11 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        q.enqueue(makePayload(event: "a"))
-        await q.flush()
+        queue.enqueue(makePayload(event: "a"))
+        await queue.flush()
         XCTAssertEqual(transport.calls, 1)
-        XCTAssertEqual(q.count, 0, "buffer should be empty after permanent drop")
-        q.destroy()
+        XCTAssertEqual(queue.count, 0, "buffer should be empty after permanent drop")
+        queue.destroy()
     }
 
     func testRetriesOnTransientFailureWithBackoff() async throws {
@@ -74,7 +74,7 @@ final class EventQueueTests: XCTestCase {
             TransportResult(ok: false, permanent: false, status: 502, resolvedCustomerId: nil),
             TransportResult(ok: true, permanent: false, status: 202, resolvedCustomerId: nil)
         ])
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: transport,
             flushAt: 1,
@@ -83,15 +83,15 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        q.enqueue(makePayload(event: "a"))
+        queue.enqueue(makePayload(event: "a"))
         // First failure should arrive almost immediately.
         let firstOk = await waitUntil(timeout: 2) { transport.calls >= 1 }
         XCTAssertTrue(firstOk, "first send did not happen")
         // Backoff is 1s then 2s — wait up to 5s for the third attempt.
         let thirdOk = await waitUntil(timeout: 6) { transport.calls >= 3 }
         XCTAssertTrue(thirdOk, "expected 3 attempts (2 retries) — got \(transport.calls)")
-        XCTAssertEqual(q.count, 0, "buffer should be empty after success")
-        q.destroy()
+        XCTAssertEqual(queue.count, 0, "buffer should be empty after success")
+        queue.destroy()
     }
 
     func testPersistsBufferedEventsAcrossReconstruction() async throws {
@@ -101,7 +101,7 @@ final class EventQueueTests: XCTestCase {
         neverTransport.setNextResult(
             TransportResult(ok: false, permanent: false, status: nil, resolvedCustomerId: nil)
         )
-        let q1 = EventQueue(config: EventQueueConfig(
+        let queue1 = EventQueue(config: EventQueueConfig(
             store: store,
             transport: neverTransport,
             flushAt: 100,
@@ -110,14 +110,14 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        q1.enqueue(makePayload(event: "a"))
-        q1.enqueue(makePayload(event: "b"))
+        queue1.enqueue(makePayload(event: "a"))
+        queue1.enqueue(makePayload(event: "b"))
         // Wait until persistence has happened (the workQueue is async).
         _ = await waitUntil { store.string(forKey: EventQueue.storageKey) != nil }
-        q1.destroy()
+        queue1.destroy()
 
         let okTransport = CapturingTransport()
-        let q2 = EventQueue(config: EventQueueConfig(
+        let queue2 = EventQueue(config: EventQueueConfig(
             store: store,
             transport: okTransport,
             flushAt: 100,
@@ -126,10 +126,10 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        await q2.flush()
+        await queue2.flush()
         XCTAssertEqual(okTransport.calls, 1)
         XCTAssertEqual(okTransport.lastBatch?.count, 2)
-        q2.destroy()
+        queue2.destroy()
     }
 
     func testCapsQueueAtMaxQueueSizeAndDropsOldest() async throws {
@@ -137,7 +137,7 @@ final class EventQueueTests: XCTestCase {
         blockedTransport.setNextResult(
             TransportResult(ok: false, permanent: false, status: nil, resolvedCustomerId: nil)
         )
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: blockedTransport,
             flushAt: 1000,
@@ -146,14 +146,14 @@ final class EventQueueTests: XCTestCase {
             logger: SilentLogger(),
             onResolvedCustomerId: nil
         ))
-        for i in 0..<6 { q.enqueue(makePayload(event: "e\(i)")) }
+        for index in 0..<6 { queue.enqueue(makePayload(event: "e\(index)")) }
         // Wait for all enqueues to settle on the work queue.
-        _ = await waitUntil { q.count == 3 }
-        let drained = q.drainAll()
+        _ = await waitUntil { queue.count == 3 }
+        let drained = queue.drainAll()
         XCTAssertEqual(drained.count, 3)
         XCTAssertEqual(drained.first?.event, "e3")
         XCTAssertEqual(drained.last?.event, "e5")
-        q.destroy()
+        queue.destroy()
     }
 
     func testResolvedCustomerIdCallbackFires() async throws {
@@ -163,7 +163,7 @@ final class EventQueueTests: XCTestCase {
         )
         var resolvedSeen: String?
         let lock = NSLock()
-        let q = EventQueue(config: EventQueueConfig(
+        let queue = EventQueue(config: EventQueueConfig(
             store: InMemoryStore(),
             transport: transport,
             flushAt: 1,
@@ -174,10 +174,10 @@ final class EventQueueTests: XCTestCase {
                 lock.lock(); resolvedSeen = id; lock.unlock()
             }
         ))
-        q.enqueue(makePayload(event: "identify-payload", type: .identify))
-        let ok = await waitUntil { lock.lock(); defer { lock.unlock() }; return resolvedSeen != nil }
-        XCTAssertTrue(ok)
+        queue.enqueue(makePayload(event: "identify-payload", type: .identify))
+        let succeeded = await waitUntil { lock.lock(); defer { lock.unlock() }; return resolvedSeen != nil }
+        XCTAssertTrue(succeeded)
         XCTAssertEqual(resolvedSeen, "uuid-from-server")
-        q.destroy()
+        queue.destroy()
     }
 }

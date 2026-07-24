@@ -68,12 +68,12 @@ final class EventQueue: @unchecked Sendable {
         workQueue.async { [weak self] in
             guard let self = self, !self.destroyed else { return }
             var changed = false
-            if let f = flushAt, f > 0, f != self.effectiveFlushAt {
-                self.effectiveFlushAt = f
+            if let newFlushAt = flushAt, newFlushAt > 0, newFlushAt != self.effectiveFlushAt {
+                self.effectiveFlushAt = newFlushAt
                 changed = true
             }
-            if let i = flushIntervalSeconds, i > 0, i != self.effectiveFlushInterval {
-                self.effectiveFlushInterval = i
+            if let newInterval = flushIntervalSeconds, newInterval > 0, newInterval != self.effectiveFlushInterval {
+                self.effectiveFlushInterval = newInterval
                 changed = true
             }
             if changed { self.scheduleNextLocked() }
@@ -185,7 +185,8 @@ final class EventQueue: @unchecked Sendable {
                     }
                     self.persistLocked()
                     logger.log(
-                        "dropped \(sendingCount) event(s) on permanent failure status=\(result.status.map(String.init) ?? "n/a")"
+                        "dropped \(sendingCount) event(s) on permanent failure "
+                        + "status=\(result.status.map(String.init) ?? "n/a")"
                     )
                 } else {
                     // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s cap.
@@ -207,12 +208,12 @@ final class EventQueue: @unchecked Sendable {
         if destroyed { return }
         timer?.cancel()
         let delay = retryDelaySeconds > 0 ? retryDelaySeconds : effectiveFlushInterval
-        let t = DispatchSource.makeTimerSource(queue: workQueue)
-        t.schedule(deadline: .now() + delay, leeway: .milliseconds(100))
-        t.setEventHandler { [weak self] in
+        let source = DispatchSource.makeTimerSource(queue: workQueue)
+        source.schedule(deadline: .now() + delay, leeway: .milliseconds(100))
+        source.setEventHandler { [weak self] in
             self?.flushLocked()
         }
-        t.resume()
-        timer = t
+        source.resume()
+        timer = source
     }
 }

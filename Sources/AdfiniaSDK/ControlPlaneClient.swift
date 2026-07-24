@@ -18,6 +18,10 @@ import Foundation
 /// Outcome of a control-plane request. `data` is the raw response body (may
 /// be empty). `ok` is true for 2xx.
 struct ControlPlaneResult {
+    // `ok` is the idiomatic result-flag name shared with TransportResult and
+    // the public push-result field; kept by design, so the
+    // min-identifier-length rule is suppressed for this one property only.
+    // swiftlint:disable:next identifier_name
     let ok: Bool
     let status: Int?
     let data: Data
@@ -97,8 +101,8 @@ final class HttpControlPlaneClient: ControlPlaneTransport {
             guard let http = response as? HTTPURLResponse else {
                 return ControlPlaneResult(ok: false, status: nil, data: data)
             }
-            let ok = (200...299).contains(http.statusCode)
-            return ControlPlaneResult(ok: ok, status: http.statusCode, data: data)
+            let succeeded = (200...299).contains(http.statusCode)
+            return ControlPlaneResult(ok: succeeded, status: http.statusCode, data: data)
         } catch {
             return .networkError
         }

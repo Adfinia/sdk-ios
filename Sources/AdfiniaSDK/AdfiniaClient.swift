@@ -134,7 +134,10 @@ public final class AdfiniaClient {
                     flushAt: batchSize,
                     flushIntervalSeconds: flushIntervalMs.map { Double($0) / 1000.0 }
                 )
-                log("remote config applied batch=\(String(describing: batchSize)) intervalMs=\(String(describing: flushIntervalMs))")
+                log(
+                    "remote config applied batch=\(String(describing: batchSize)) "
+                    + "intervalMs=\(String(describing: flushIntervalMs))"
+                )
             }
         } catch {
             log("remote config fetch failed — sticking with defaults")
@@ -147,20 +150,20 @@ public final class AdfiniaClient {
 
     public func identify(_ arg: AdfiniaIdentifyArg, traits: AdfiniaTraits? = nil) {
         guard guardCall("identify") else { return }
-        var customerId: String? = nil
-        var anonymousId: String? = nil
+        var customerId: String?
+        var anonymousId: String?
         var traitsJson: [String: AdfiniaJSONValue]? = AdfiniaJSONValue.fromDictionary(traits)
 
         switch arg {
         case .customerId(let id):
             customerId = id
-        case .object(let cId, let aId, let t):
+        case .object(let cId, let aId, let extraTraits):
             customerId = cId
             anonymousId = aId
-            if let t = t {
-                let extra = AdfiniaJSONValue.fromDictionary(t) ?? [:]
+            if let extraTraits = extraTraits {
+                let extra = AdfiniaJSONValue.fromDictionary(extraTraits) ?? [:]
                 if var merged = traitsJson {
-                    for (k, v) in extra { merged[k] = v }
+                    for (key, value) in extra { merged[key] = value }
                     traitsJson = merged
                 } else {
                     traitsJson = extra
@@ -205,7 +208,10 @@ public final class AdfiniaClient {
         ))
     }
 
-    @available(*, deprecated, message: "alias() is a no-op; anonymous sessions are promoted automatically by identify()")
+    @available(
+        *, deprecated,
+        message: "alias() is a no-op; anonymous sessions are promoted automatically by identify()"
+    )
     public func alias(_ newId: String, previousId: String? = nil) {
         // Intentional no-op. The server has no alias/previous_id handler
         // (it only processes track + identify), so alias() never produced
@@ -234,9 +240,9 @@ public final class AdfiniaClient {
 
     // MARK: - Internal (test) accessors
 
-    func _identityStore() -> IdentityStore? { identityStore }
-    func _queueCount() -> Int { queue?.count ?? 0 }
-    func _drainQueue() -> [AdfiniaPayload] { queue?.drainAll() ?? [] }
+    func identityStoreForTests() -> IdentityStore? { identityStore }
+    func queueCount() -> Int { queue?.count ?? 0 }
+    func drainQueue() -> [AdfiniaPayload] { queue?.drainAll() ?? [] }
 
     // MARK: - Internal accessors for the push + inbox extensions
 
@@ -338,8 +344,8 @@ extension ISO8601DateFormatter {
     /// Shared formatter with fractional seconds — matches the web SDK's
     /// `new Date().toISOString()` output to the millisecond.
     static let adfinia: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
     }()
 }

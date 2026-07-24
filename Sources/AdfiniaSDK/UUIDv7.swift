@@ -22,20 +22,20 @@ enum UUIDv7 {
     /// `xxxxxxxx-xxxx-7xxx-yxxx-xxxxxxxxxxxx` where the first 48 bits encode
     /// `unix_ts_ms` big-endian and the version nibble is `7`, variant `10`.
     static func generate() -> String {
-        var ms = UInt64(Date().timeIntervalSince1970 * 1000.0)
+        var timestampMs = UInt64(Date().timeIntervalSince1970 * 1000.0)
 
         lock.lock()
-        if ms == lastMs {
+        if timestampMs == lastMs {
             counter &+= 1
             if counter > 0x0fff {
                 // Counter overflow — bump the clock so the next batch lands
                 // in the next ms. Extremely rare in practice.
-                ms = lastMs + 1
-                lastMs = ms
+                timestampMs = lastMs + 1
+                lastMs = timestampMs
                 counter = 0
             }
         } else {
-            lastMs = ms
+            lastMs = timestampMs
             counter = 0
         }
         let snapshotCounter = counter
@@ -45,12 +45,12 @@ enum UUIDv7 {
         var bytes = [UInt8](repeating: 0, count: 16)
 
         // First 48 bits = unix_ts_ms big-endian.
-        bytes[0] = UInt8((ms >> 40) & 0xff)
-        bytes[1] = UInt8((ms >> 32) & 0xff)
-        bytes[2] = UInt8((ms >> 24) & 0xff)
-        bytes[3] = UInt8((ms >> 16) & 0xff)
-        bytes[4] = UInt8((ms >> 8) & 0xff)
-        bytes[5] = UInt8(ms & 0xff)
+        bytes[0] = UInt8((timestampMs >> 40) & 0xff)
+        bytes[1] = UInt8((timestampMs >> 32) & 0xff)
+        bytes[2] = UInt8((timestampMs >> 24) & 0xff)
+        bytes[3] = UInt8((timestampMs >> 16) & 0xff)
+        bytes[4] = UInt8((timestampMs >> 8) & 0xff)
+        bytes[5] = UInt8(timestampMs & 0xff)
 
         // Bits 48..59 = 12-bit monotonic counter.
         bytes[6] = UInt8((snapshotCounter >> 8) & 0x0f)
@@ -63,8 +63,8 @@ enum UUIDv7 {
             guard let base = buf.baseAddress else { return errSecParam }
             return SecRandomCopyBytes(kSecRandomDefault, buf.count, base)
         }
-        for i in 0..<8 {
-            bytes[8 + i] = random[i]
+        for index in 0..<8 {
+            bytes[8 + index] = random[index]
         }
 
         // Version = 7 — high nibble of byte 6.
@@ -77,7 +77,7 @@ enum UUIDv7 {
 
     /// **Internal** — testing seam to reset the monotonic counter so each
     /// test case starts from a known state. Not part of the public API.
-    static func _resetForTests() {
+    static func resetForTests() {
         lock.lock()
         lastMs = 0
         counter = 0

@@ -30,6 +30,10 @@ import UIKit
 /// Outcome of a push registration / unregistration call. `ok` is the headline;
 /// `reason` carries a stable machine-readable failure string for logs.
 public struct AdfiniaPushRegistrationResult: Equatable {
+    // `ok` is the headline flag and is part of the public API (renaming it
+    // would be a source-breaking change), so the min-identifier-length rule
+    // is suppressed for this one property only.
+    // swiftlint:disable:next identifier_name
     public let ok: Bool
     /// The hex-encoded token that was (un)registered, when known.
     public let token: String?
@@ -51,10 +55,22 @@ public struct AdfiniaPushRegistrationResult: Equatable {
 struct AdfiniaPushRegisterWire: Encodable {
     let token: String
     let platform: String
-    let device_id: String
-    let app_version: String?
-    let customer_id: String?
-    let anonymous_id: String
+    let deviceId: String
+    let appVersion: String?
+    let customerId: String?
+    let anonymousId: String
+
+    // CodingKeys map each field back to the exact snake_case JSON keys the
+    // API expects, so the serialised bytes are unchanged; only the Swift
+    // property names are camelCase.
+    enum CodingKeys: String, CodingKey {
+        case token
+        case platform
+        case deviceId = "device_id"
+        case appVersion = "app_version"
+        case customerId = "customer_id"
+        case anonymousId = "anonymous_id"
+    }
 }
 
 public extension AdfiniaClient {
@@ -109,10 +125,10 @@ public extension AdfiniaClient {
             platform: "ios",
             // The anonymous_id is device/install-scoped; it doubles as a stable
             // device_id so the backend can de-dupe tokens per device (matches RN).
-            device_id: identity.anonymousId,
-            app_version: AdfiniaAppInfo.version(),
-            customer_id: identity.customerId,
-            anonymous_id: identity.anonymousId
+            deviceId: identity.anonymousId,
+            appVersion: AdfiniaAppInfo.version(),
+            customerId: identity.customerId,
+            anonymousId: identity.anonymousId
         )
 
         let body: Data

@@ -30,7 +30,10 @@ extension AdfiniaClient {
         if status != "opted_in" && status != "opted_out" {
             stateLock.lock(); let alreadyLogged = consentStatusLogged; consentStatusLogged = true; stateLock.unlock()
             if !alreadyLogged {
-                log("setConsent() called with invalid status \"\(status)\" - expected \"opted_in\" or \"opted_out\"; nothing sent")
+                log(
+                    "setConsent() called with invalid status \"\(status)\" - "
+                    + "expected \"opted_in\" or \"opted_out\"; nothing sent"
+                )
             }
             return
         }

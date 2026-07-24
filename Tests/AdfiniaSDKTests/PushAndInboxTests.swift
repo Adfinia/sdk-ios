@@ -70,19 +70,19 @@ final class PushAndInboxTests: XCTestCase {
 
     func testRegisterForPushPostsMirroredPayload() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 201, data: Data("{}".utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        c.identify("cust_42")
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: true, status: 201, data: Data("{}".utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        client.identify("cust_42")
 
         let tokenBytes = Data([0xab, 0xcd, 0xef, 0x01])
-        let result = await c.performPushRegister(hexToken: AdfiniaClient.hexEncode(deviceToken: tokenBytes))
+        let result = await client.performPushRegister(hexToken: AdfiniaClient.hexEncode(deviceToken: tokenBytes))
 
         XCTAssertTrue(result.ok)
         XCTAssertEqual(result.token, "abcdef01")
 
-        let call = try XCTUnwrap(cp.lastCall)
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertEqual(call.method, "POST")
         XCTAssertEqual(call.path, "/api/v1/push/register")
         let body = try XCTUnwrap(call.body)
@@ -98,48 +98,48 @@ final class PushAndInboxTests: XCTestCase {
 
     func testRegisterForPushEmitsPushRegisteredEvent() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 201, data: Data("{}".utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: true, status: 201, data: Data("{}".utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
 
-        _ = await c.performPushRegister(hexToken: "deadbeef00")
+        _ = await client.performPushRegister(hexToken: "deadbeef00")
 
-        let ok = await waitUntil { events.sentEvents.contains { $0.event == "push_registered" } }
-        XCTAssertTrue(ok)
-        let ev = try XCTUnwrap(events.sentEvents.first { $0.event == "push_registered" })
-        XCTAssertEqual(ev.properties?["platform"], .string("ios"))
+        let succeeded = await waitUntil { events.sentEvents.contains { $0.event == "push_registered" } }
+        XCTAssertTrue(succeeded)
+        let event = try XCTUnwrap(events.sentEvents.first { $0.event == "push_registered" })
+        XCTAssertEqual(event.properties?["platform"], .string("ios"))
     }
 
     func testRegisterBeforeInitIsNotInitialised() async {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        let c = makeClient(transport: events, controlPlane: cp)
-        let result = await c.performPushRegister(hexToken: "abc123")
+        let controlPlane = CapturingControlPlane()
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        let result = await client.performPushRegister(hexToken: "abc123")
         XCTAssertFalse(result.ok)
         XCTAssertEqual(result.reason, "not_initialised")
-        XCTAssertNil(cp.lastCall)
+        XCTAssertNil(controlPlane.lastCall)
     }
 
     func testRegisterWithEmptyTokenIsRejected() async {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        let result = await c.performPushRegister(hexToken: "   ")
+        let controlPlane = CapturingControlPlane()
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        let result = await client.performPushRegister(hexToken: "   ")
         XCTAssertFalse(result.ok)
         XCTAssertEqual(result.reason, "empty_token")
-        XCTAssertNil(cp.lastCall)
+        XCTAssertNil(controlPlane.lastCall)
     }
 
     func testRegisterServerErrorReportsPostFailedAndNoEvent() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: false, status: 400, data: Data("bad".utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: false, status: 400, data: Data("bad".utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
 
-        let result = await c.performPushRegister(hexToken: "abc123def0")
+        let result = await client.performPushRegister(hexToken: "abc123def0")
         XCTAssertFalse(result.ok)
         XCTAssertEqual(result.reason, "post_failed")
         // A failed registration must NOT emit push_registered.
@@ -149,14 +149,14 @@ final class PushAndInboxTests: XCTestCase {
 
     func testUnregisterDeletesTokenPath() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data("{}".utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data("{}".utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
 
-        let result = await c.performPushUnregister(hexToken: "abcdef01")
+        let result = await client.performPushUnregister(hexToken: "abcdef01")
         XCTAssertTrue(result.ok)
-        let call = try XCTUnwrap(cp.lastCall)
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertEqual(call.method, "DELETE")
         XCTAssertEqual(call.path, "/api/v1/push/register/abcdef01")
     }
@@ -186,13 +186,13 @@ final class PushAndInboxTests: XCTestCase {
 
     func testInboxListDecodesAndSendsContactAndStatus() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(listBody.utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        c.identify("cust_42")
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(listBody.utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        client.identify("cust_42")
 
-        let result = await c.notifications.list(status: .unread, limit: 20)
+        let result = await client.notifications.list(status: .unread, limit: 20)
         guard case .success(let page) = result else {
             return XCTFail("expected success, got \(result)")
         }
@@ -211,7 +211,7 @@ final class PushAndInboxTests: XCTestCase {
         XCTAssertEqual(page.data[1].read, true)
         XCTAssertEqual(page.data[1].readAt, "2026-07-19T11:00:00.000Z")
 
-        let call = try XCTUnwrap(cp.lastCall)
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertEqual(call.method, "GET")
         XCTAssertTrue(call.path.contains("/api/v1/notifications"))
         XCTAssertTrue(call.path.contains("contact_id=cust_42"), "path was \(call.path)")
@@ -220,29 +220,33 @@ final class PushAndInboxTests: XCTestCase {
 
     func testInboxListFallsBackToAnonymousContactId() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(#"{"data":[],"has_more":false}"#.utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(
+            ControlPlaneResult(ok: true, status: 200, data: Data(#"{"data":[],"has_more":false}"#.utf8))
+        )
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
         // No identify() — should use the anonymous_id.
-        let anon = try XCTUnwrap(c._identityStore()?.anonymousId)
+        let anon = try XCTUnwrap(client.identityStoreForTests()?.anonymousId)
 
-        _ = await c.notifications.list()
-        let call = try XCTUnwrap(cp.lastCall)
+        _ = await client.notifications.list()
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertTrue(call.path.contains("contact_id=\(anon)"), "path was \(call.path)")
     }
 
     func testMarkReadPostsToIdRoute() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(#"{"id":"n1","read":true}"#.utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        c.identify("cust_42")
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(
+            ControlPlaneResult(ok: true, status: 200, data: Data(#"{"id":"n1","read":true}"#.utf8))
+        )
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        client.identify("cust_42")
 
-        let result = await c.notifications.markRead("n1")
+        let result = await client.notifications.markRead("n1")
         guard case .success = result else { return XCTFail("expected success") }
-        let call = try XCTUnwrap(cp.lastCall)
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertEqual(call.method, "POST")
         XCTAssertTrue(call.path.hasPrefix("/api/v1/notifications/n1/read"), "path was \(call.path)")
         XCTAssertTrue(call.path.contains("contact_id=cust_42"), "path was \(call.path)")
@@ -250,44 +254,45 @@ final class PushAndInboxTests: XCTestCase {
 
     func testMarkAllReadReturnsUpdatedCount() async throws {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(#"{"updated":7}"#.utf8)))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        c.identify("cust_42")
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: true, status: 200, data: Data(#"{"updated":7}"#.utf8)))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        client.identify("cust_42")
 
-        let result = await c.notifications.markAllRead()
-        guard case .success(let n) = result else { return XCTFail("expected success") }
-        XCTAssertEqual(n, 7)
-        let call = try XCTUnwrap(cp.lastCall)
+        let result = await client.notifications.markAllRead()
+        guard case .success(let count) = result else { return XCTFail("expected success") }
+        XCTAssertEqual(count, 7)
+        let call = try XCTUnwrap(controlPlane.lastCall)
         XCTAssertEqual(call.method, "POST")
         XCTAssertTrue(call.path.hasPrefix("/api/v1/notifications/read-all"), "path was \(call.path)")
     }
 
     func testInboxBeforeInitIsNotInitialised() async {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        let c = makeClient(transport: events, controlPlane: cp)
-        let result = await c.notifications.list()
+        let controlPlane = CapturingControlPlane()
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        let result = await client.notifications.list()
         guard case .failure(let err) = result else { return XCTFail("expected failure") }
         XCTAssertEqual(err, .notInitialised)
     }
 
     func testInboxServerErrorSurfacesStatus() async {
         let events = CapturingTransport()
-        let cp = CapturingControlPlane()
-        cp.setNextResult(ControlPlaneResult(ok: false, status: 403, data: Data()))
-        let c = makeClient(transport: events, controlPlane: cp)
-        c.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
-        c.identify("cust_42")
-        let result = await c.notifications.list()
+        let controlPlane = CapturingControlPlane()
+        controlPlane.setNextResult(ControlPlaneResult(ok: false, status: 403, data: Data()))
+        let client = makeClient(transport: events, controlPlane: controlPlane)
+        client.initialize(AdfiniaConfig(writeKey: "pk_test_x", flushAt: 1, flushIntervalSeconds: 60))
+        client.identify("cust_42")
+        let result = await client.notifications.list()
         guard case .failure(let err) = result else { return XCTFail("expected failure") }
         XCTAssertEqual(err, .requestFailed(status: 403))
     }
 
     // The SSE frame shape (no read/read_at) still decodes into AdfiniaNotification.
     func testNotificationDecodesFromSSEFrameWithoutReadState() throws {
-        let sse = #"{"id":"n9","title":"Live","body":"Now","severity":"info","dismissable":true,"created_at":"2026-07-20T12:00:00.000Z"}"#
+        let sse = #"{"id":"n9","title":"Live","body":"Now","severity":"info","#
+            + #""dismissable":true,"created_at":"2026-07-20T12:00:00.000Z"}"#
         let notif = try JSONDecoder().decode(AdfiniaNotification.self, from: Data(sse.utf8))
         XCTAssertEqual(notif.id, "n9")
         XCTAssertFalse(notif.read)

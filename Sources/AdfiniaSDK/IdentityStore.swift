@@ -72,7 +72,7 @@ final class IdentityStore {
         if let customerId = customerId { state.customerId = customerId }
         if let traits = traits {
             var merged = state.traits ?? [:]
-            for (k, v) in traits { merged[k] = v }
+            for (key, value) in traits { merged[key] = value }
             state.traits = merged
         }
         let snapshot = state

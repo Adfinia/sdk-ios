@@ -40,8 +40,8 @@ final class StubURLProtocol: URLProtocol {
         return _requestLog
     }
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         // URLProtocol surfaces the request body via `httpBodyStream`, not
@@ -58,8 +58,8 @@ final class StubURLProtocol: URLProtocol {
         StubURLProtocol.lock.unlock()
 
         if throwError {
-            let e = NSError(domain: "AdfiniaTest", code: -1009, userInfo: nil)
-            client?.urlProtocol(self, didFailWithError: e)
+            let error = NSError(domain: "AdfiniaTest", code: -1009, userInfo: nil)
+            client?.urlProtocol(self, didFailWithError: error)
             return
         }
 
@@ -125,11 +125,13 @@ final class TransportTests: XCTestCase {
     // A lone track-like event ships as a 1-element /track/batch (NOT single
     // /track) so the server stamps test/live from the API key.
     func testPostsTrackEventsWithBearerAuth() async throws {
-        StubURLProtocol.setResponse { _ in .init(status: 202, body: Data(#"{"accepted":1,"rejected":0,"batch_id":"b"}"#.utf8)) }
+        StubURLProtocol.setResponse { _ in
+            .init(status: 202, body: Data(#"{"accepted":1,"rejected":0,"batch_id":"b"}"#.utf8))
+        }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
 
-        let res = await t.send([buildEvent(event: "Order Completed")])
+        let res = await transport.send([buildEvent(event: "Order Completed")])
         XCTAssertTrue(res.ok)
         XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
         let req = StubURLProtocol.requestLog[0]
@@ -140,11 +142,11 @@ final class TransportTests: XCTestCase {
         let parsed = try JSONSerialization.jsonObject(with: body) as? [String: Any]
         let events = try XCTUnwrap(parsed?["events"] as? [[String: Any]])
         XCTAssertEqual(events.count, 1)
-        let ev = events[0]
-        XCTAssertEqual(ev["event_name"] as? String, "Order Completed")
-        XCTAssertEqual(ev["anonymous_id"] as? String, "anon")
-        XCTAssertNotNil(ev["occurred_at"])
-        let context = ev["context"] as? [String: String]
+        let event = events[0]
+        XCTAssertEqual(event["event_name"] as? String, "Order Completed")
+        XCTAssertEqual(event["anonymous_id"] as? String, "anon")
+        XCTAssertNotNil(event["occurred_at"])
+        let context = event["context"] as? [String: String]
         XCTAssertEqual(context?["library.name"], "adfinia-sdk-ios")
         XCTAssertEqual(context?["message_id"], "msg")
     }
@@ -154,9 +156,9 @@ final class TransportTests: XCTestCase {
     func testLoneIdentifyUsesSingleIdentifyEndpoint() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 202, body: Data(#"{"customer_id":"cust_9"}"#.utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
 
-        let res = await t.send([buildEvent(type: .identify, event: "", customerId: "cust_9")])
+        let res = await transport.send([buildEvent(type: .identify, event: "", customerId: "cust_9")])
         XCTAssertTrue(res.ok)
         XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
         XCTAssertEqual(StubURLProtocol.requestLog[0].url?.absoluteString, "https://events.adfinia.com/api/v1/identify")
@@ -174,7 +176,7 @@ final class TransportTests: XCTestCase {
             .init(status: 202, body: Data(#"{"accepted":1,"rejected":0,"batch_id":"b"}"#.utf8))
         }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
 
         let identifyEvent = buildEvent(
             type: .identify,
@@ -182,7 +184,7 @@ final class TransportTests: XCTestCase {
             customerId: "cust_42",
             traits: ["plan": .string("growth")]
         )
-        let res = await t.send([buildEvent(event: "boot"), buildEvent(event: "boot2"), identifyEvent])
+        let res = await transport.send([buildEvent(event: "boot"), buildEvent(event: "boot2"), identifyEvent])
         XCTAssertTrue(res.ok)
         let urls = StubURLProtocol.requestLog.map { $0.url?.absoluteString ?? "" }
         // Batch endpoints — one call per kind.
@@ -204,8 +206,8 @@ final class TransportTests: XCTestCase {
     func testSynthesisesEventNameForPageScreen() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 202, body: Data("{}".utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
-        _ = await t.send([
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        _ = await transport.send([
             buildEvent(type: .page, event: ""),
             buildEvent(type: .screen, event: "")
         ])
@@ -228,11 +230,11 @@ final class TransportTests: XCTestCase {
             .init(status: 202, body: Data(#"{"accepted":3,"rejected":0,"batch_id":"b1"}"#.utf8))
         }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
-        let res = await t.send([
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk_test_x", session: session)
+        let res = await transport.send([
             buildEvent(event: "a"),
             buildEvent(event: "b"),
-            buildEvent(event: "c"),
+            buildEvent(event: "c")
         ])
         XCTAssertTrue(res.ok)
         XCTAssertEqual(StubURLProtocol.requestLog.count, 1)
@@ -248,8 +250,8 @@ final class TransportTests: XCTestCase {
     func testReturnsPermanentTrueOn4xx() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 400, body: Data("bad".utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
-        let res = await t.send([buildEvent()])
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
+        let res = await transport.send([buildEvent()])
         XCTAssertFalse(res.ok)
         XCTAssertTrue(res.permanent)
         XCTAssertEqual(res.status, 400)
@@ -258,8 +260,8 @@ final class TransportTests: XCTestCase {
     func testReturnsPermanentFalseOn5xx() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 503, body: Data("oops".utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
-        let res = await t.send([buildEvent()])
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
+        let res = await transport.send([buildEvent()])
         XCTAssertFalse(res.ok)
         XCTAssertFalse(res.permanent)
         XCTAssertEqual(res.status, 503)
@@ -268,16 +270,16 @@ final class TransportTests: XCTestCase {
     func testTreatsNetworkErrorsAsRetryable() async throws {
         StubURLProtocol.setThrows()
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
-        let res = await t.send([buildEvent()])
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
+        let res = await transport.send([buildEvent()])
         XCTAssertFalse(res.ok)
         XCTAssertFalse(res.permanent)
     }
 
     func testNoOpsOnEmptyBatch() async throws {
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
-        let res = await t.send([])
+        let transport = HttpTransport(host: "https://events.adfinia.com", writeKey: "pk", session: session)
+        let res = await transport.send([])
         XCTAssertTrue(res.ok)
         XCTAssertEqual(StubURLProtocol.requestLog.count, 0)
     }
@@ -285,8 +287,11 @@ final class TransportTests: XCTestCase {
     func testStripsTrailingSlashFromHost() async throws {
         StubURLProtocol.setResponse { _ in .init(status: 202, body: Data("{}".utf8)) }
         let session = AdfiniaURLSessionFactory.session(with: StubURLProtocol.self)
-        let t = HttpTransport(host: "https://events.adfinia.com/", writeKey: "pk", session: session)
-        _ = await t.send([buildEvent()])
-        XCTAssertEqual(StubURLProtocol.requestLog.first?.url?.absoluteString, "https://events.adfinia.com/api/v1/track/batch")
+        let transport = HttpTransport(host: "https://events.adfinia.com/", writeKey: "pk", session: session)
+        _ = await transport.send([buildEvent()])
+        XCTAssertEqual(
+            StubURLProtocol.requestLog.first?.url?.absoluteString,
+            "https://events.adfinia.com/api/v1/track/batch"
+        )
     }
 }

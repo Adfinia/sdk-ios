@@ -48,19 +48,19 @@ public struct AdfiniaNotification: Decodable, Equatable {
     }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
-        severity = try c.decodeIfPresent(String.self, forKey: .severity) ?? "info"
-        dismissable = try c.decodeIfPresent(Bool.self, forKey: .dismissable) ?? true
-        deepLink = try c.decodeIfPresent(String.self, forKey: .deepLink)
-        data = try c.decodeIfPresent([String: AdfiniaJSONValue].self, forKey: .data)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
+        severity = try container.decodeIfPresent(String.self, forKey: .severity) ?? "info"
+        dismissable = try container.decodeIfPresent(Bool.self, forKey: .dismissable) ?? true
+        deepLink = try container.decodeIfPresent(String.self, forKey: .deepLink)
+        data = try container.decodeIfPresent([String: AdfiniaJSONValue].self, forKey: .data)
         // SSE frames carry no read-state; default to unread there.
-        read = try c.decodeIfPresent(Bool.self, forKey: .read) ?? false
-        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
-        readAt = try c.decodeIfPresent(String.self, forKey: .readAt)
-        expiresAt = try c.decodeIfPresent(String.self, forKey: .expiresAt)
+        read = try container.decodeIfPresent(Bool.self, forKey: .read) ?? false
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        readAt = try container.decodeIfPresent(String.self, forKey: .readAt)
+        expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt)
     }
 
     /// Test-only memberwise initialiser (the wire path uses `init(from:)`).
@@ -88,10 +88,10 @@ public struct AdfiniaNotificationPage: Decodable, Equatable {
     }
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        data = try c.decodeIfPresent([AdfiniaNotification].self, forKey: .data) ?? []
-        nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
-        hasMore = try c.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = try container.decodeIfPresent([AdfiniaNotification].self, forKey: .data) ?? []
+        nextCursor = try container.decodeIfPresent(String.self, forKey: .nextCursor)
+        hasMore = try container.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
     }
 }
 
@@ -136,7 +136,7 @@ public final class AdfiniaNotifications {
 
         var query = [
             URLQueryItem(name: "contact_id", value: contact),
-            URLQueryItem(name: "status", value: status.rawValue),
+            URLQueryItem(name: "status", value: status.rawValue)
         ]
         if let cursor, !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
@@ -267,7 +267,7 @@ public final class AdfiniaNotifications {
         guard !query.isEmpty, var components = URLComponents(string: path) else { return path }
         components.queryItems = query
         // percentEncodedQuery preserves the encoding the client will re-parse.
-        if let q = components.percentEncodedQuery { return path + "?" + q }
+        if let encodedQuery = components.percentEncodedQuery { return path + "?" + encodedQuery }
         return path
     }
 }

@@ -13,10 +13,10 @@ final class IdentityStoreTests: XCTestCase {
 
     func testPersistsAnonymousIdAcrossConstructions() {
         let backing = InMemoryStore()
-        let s1 = IdentityStore(store: backing)
-        let id1 = s1.anonymousId
-        let s2 = IdentityStore(store: backing)
-        XCTAssertEqual(s2.anonymousId, id1)
+        let store1 = IdentityStore(store: backing)
+        let id1 = store1.anonymousId
+        let store2 = IdentityStore(store: backing)
+        XCTAssertEqual(store2.anonymousId, id1)
     }
 
     func testRecordsCustomerIdAndMergesTraits() {

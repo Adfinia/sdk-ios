@@ -25,20 +25,20 @@ enum AdfiniaContextBuilder {
         ctx.timezone = TimeZone.current.identifier
 
         // OS — use the host platform's reported name + version where we can.
-        var os = AdfiniaOSContext()
+        var osContext = AdfiniaOSContext()
         #if os(iOS)
-        os.name = "iOS"
+        osContext.name = "iOS"
         #elseif os(macOS)
-        os.name = "macOS"
+        osContext.name = "macOS"
         #elseif os(tvOS)
-        os.name = "tvOS"
+        osContext.name = "tvOS"
         #elseif os(watchOS)
-        os.name = "watchOS"
+        osContext.name = "watchOS"
         #else
-        os.name = "Apple"
+        osContext.name = "Apple"
         #endif
-        os.version = osVersionString()
-        ctx.os = os
+        osContext.version = osVersionString()
+        ctx.osContext = osContext
 
         // App — read from the host's Info.plist when available.
         var app = AdfiniaAppContext()
@@ -67,11 +67,11 @@ enum AdfiniaContextBuilder {
     }
 
     private static func osVersionString() -> String {
-        let v = ProcessInfo.processInfo.operatingSystemVersion
-        if v.patchVersion == 0 {
-            return "\(v.majorVersion).\(v.minorVersion)"
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        if version.patchVersion == 0 {
+            return "\(version.majorVersion).\(version.minorVersion)"
         }
-        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 
     #if os(macOS)
@@ -94,14 +94,14 @@ func flattenContext(_ ctx: AdfiniaContext, messageId: String, sdkEventType: Stri
     out["library.version"] = ctx.library.version
     out["message_id"] = messageId
     out["sdk_event_type"] = sdkEventType
-    if let v = ctx.locale { out["locale"] = v }
-    if let v = ctx.timezone { out["timezone"] = v }
-    if let v = ctx.os?.name { out["os.name"] = v }
-    if let v = ctx.os?.version { out["os.version"] = v }
-    if let v = ctx.app?.name { out["app.name"] = v }
-    if let v = ctx.app?.version { out["app.version"] = v }
-    if let v = ctx.app?.build { out["app.build"] = v }
-    if let v = ctx.device?.model { out["device.model"] = v }
-    if let v = ctx.device?.manufacturer { out["device.manufacturer"] = v }
+    if let value = ctx.locale { out["locale"] = value }
+    if let value = ctx.timezone { out["timezone"] = value }
+    if let value = ctx.osContext?.name { out["os.name"] = value }
+    if let value = ctx.osContext?.version { out["os.version"] = value }
+    if let value = ctx.app?.name { out["app.name"] = value }
+    if let value = ctx.app?.version { out["app.version"] = value }
+    if let value = ctx.app?.build { out["app.build"] = value }
+    if let value = ctx.device?.model { out["device.model"] = value }
+    if let value = ctx.device?.manufacturer { out["device.manufacturer"] = value }
     return out
 }

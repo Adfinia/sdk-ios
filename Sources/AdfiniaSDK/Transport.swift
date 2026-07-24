@@ -29,6 +29,10 @@ import Foundation
 /// Outcome of a batch send. The queue uses this to decide whether to
 /// drop, retry, or advance.
 struct TransportResult: Equatable {
+    // `ok` is the idiomatic result-flag name mirrored across the web + RN
+    // SDKs and matching the public push-result field; kept by design, so the
+    // min-identifier-length rule is suppressed for this one property only.
+    // swiftlint:disable:next identifier_name
     let ok: Bool
     /// `true` if the failure is permanent (4xx) — events should be dropped.
     let permanent: Bool
@@ -70,9 +74,8 @@ final class HttpTransport: Transport {
         // Partition into identify vs track-like.
         var identifies: [AdfiniaPayload] = []
         var tracks: [AdfiniaPayload] = []
-        for p in batch {
-            if p.type == .identify { identifies.append(p) }
-            else { tracks.append(p) }
+        for payload in batch {
+            if payload.type == .identify { identifies.append(payload) } else { tracks.append(payload) }
         }
 
         var results: [TransportResult] = []
@@ -83,20 +86,25 @@ final class HttpTransport: Transport {
             results.append(await sendBatch(path: "/api/v1/track/batch", payloads: tracks))
         }
 
-        var ok = true
+        var succeeded = true
         var permanent = false
-        var status: Int? = nil
-        var resolvedCustomerId: String? = nil
-        for r in results {
-            if r.ok {
-                if let id = r.resolvedCustomerId { resolvedCustomerId = id }
+        var status: Int?
+        var resolvedCustomerId: String?
+        for result in results {
+            if result.ok {
+                if let id = result.resolvedCustomerId { resolvedCustomerId = id }
             } else {
-                ok = false
-                if r.permanent { permanent = true }
-                status = r.status
+                succeeded = false
+                if result.permanent { permanent = true }
+                status = result.status
             }
         }
-        return TransportResult(ok: ok, permanent: permanent, status: status, resolvedCustomerId: resolvedCustomerId)
+        return TransportResult(
+            ok: succeeded,
+            permanent: permanent,
+            status: status,
+            resolvedCustomerId: resolvedCustomerId
+        )
     }
 
     private func sendBatch(path: String, payloads: [AdfiniaPayload]) async -> TransportResult {
@@ -174,13 +182,18 @@ final class HttpTransport: Transport {
             }
             if (200...299).contains(http.statusCode) {
                 // Best-effort parse of `customer_id` from the identify response.
-                var resolved: String? = nil
+                var resolved: String?
                 if payload.type == .identify {
                     if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         resolved = parsed["customer_id"] as? String
                     }
                 }
-                return TransportResult(ok: true, permanent: false, status: http.statusCode, resolvedCustomerId: resolved)
+                return TransportResult(
+                    ok: true,
+                    permanent: false,
+                    status: http.statusCode,
+                    resolvedCustomerId: resolved
+                )
             }
             let permanent = (400...499).contains(http.statusCode)
             return TransportResult(ok: false, permanent: permanent, status: http.statusCode, resolvedCustomerId: nil)
@@ -190,24 +203,32 @@ final class HttpTransport: Transport {
         }
     }
 
-    private func toIdentifyWire(_ p: AdfiniaPayload) -> AdfiniaIdentifyWire {
+    private func toIdentifyWire(_ payload: AdfiniaPayload) -> AdfiniaIdentifyWire {
         return AdfiniaIdentifyWire(
-            customer_id: p.customerId,
-            anonymous_id: p.anonymousId,
-            traits: p.traits,
-            context: flattenContext(p.context, messageId: p.messageId, sdkEventType: p.type.rawValue)
+            customerId: payload.customerId,
+            anonymousId: payload.anonymousId,
+            traits: payload.traits,
+            context: flattenContext(
+                payload.context,
+                messageId: payload.messageId,
+                sdkEventType: payload.type.rawValue
+            )
         )
     }
 
-    private func toTrackWire(_ p: AdfiniaPayload) -> AdfiniaTrackWire {
-        let eventName = p.event?.isEmpty == false ? p.event! : synthesiseName(p.type)
+    private func toTrackWire(_ payload: AdfiniaPayload) -> AdfiniaTrackWire {
+        let eventName = payload.event?.isEmpty == false ? payload.event! : synthesiseName(payload.type)
         return AdfiniaTrackWire(
-            customer_id: p.customerId,
-            anonymous_id: p.anonymousId,
-            event_name: eventName,
-            properties: mergedProperties(p),
-            context: flattenContext(p.context, messageId: p.messageId, sdkEventType: p.type.rawValue),
-            occurred_at: p.sentAt
+            customerId: payload.customerId,
+            anonymousId: payload.anonymousId,
+            eventName: eventName,
+            properties: mergedProperties(payload),
+            context: flattenContext(
+                payload.context,
+                messageId: payload.messageId,
+                sdkEventType: payload.type.rawValue
+            ),
+            occurredAt: payload.sentAt
         )
     }
 
@@ -219,16 +240,16 @@ final class HttpTransport: Transport {
         }
     }
 
-    private func mergedProperties(_ p: AdfiniaPayload) -> [String: AdfiniaJSONValue]? {
-        p.properties
+    private func mergedProperties(_ payload: AdfiniaPayload) -> [String: AdfiniaJSONValue]? {
+        payload.properties
     }
 
     // MARK: - Internal helpers exposed for tests
-    func _toIdentifyWireForTests(_ p: AdfiniaPayload) -> AdfiniaIdentifyWire {
-        toIdentifyWire(p)
+    func toIdentifyWireForTests(_ payload: AdfiniaPayload) -> AdfiniaIdentifyWire {
+        toIdentifyWire(payload)
     }
-    func _toTrackWireForTests(_ p: AdfiniaPayload) -> AdfiniaTrackWire {
-        toTrackWire(p)
+    func toTrackWireForTests(_ payload: AdfiniaPayload) -> AdfiniaTrackWire {
+        toTrackWire(payload)
     }
 }
 

@@ -26,39 +26,39 @@ public indirect enum AdfiniaJSONValue: Codable, Equatable {
     case object([String: AdfiniaJSONValue])
 
     public init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
             self = .null
-        } else if let v = try? c.decode(Bool.self) {
-            self = .bool(v)
-        } else if let v = try? c.decode(Int64.self) {
-            self = .int(v)
-        } else if let v = try? c.decode(Double.self) {
-            self = .double(v)
-        } else if let v = try? c.decode(String.self) {
-            self = .string(v)
-        } else if let v = try? c.decode([AdfiniaJSONValue].self) {
-            self = .array(v)
-        } else if let v = try? c.decode([String: AdfiniaJSONValue].self) {
-            self = .object(v)
+        } else if let decoded = try? container.decode(Bool.self) {
+            self = .bool(decoded)
+        } else if let decoded = try? container.decode(Int64.self) {
+            self = .int(decoded)
+        } else if let decoded = try? container.decode(Double.self) {
+            self = .double(decoded)
+        } else if let decoded = try? container.decode(String.self) {
+            self = .string(decoded)
+        } else if let decoded = try? container.decode([AdfiniaJSONValue].self) {
+            self = .array(decoded)
+        } else if let decoded = try? container.decode([String: AdfiniaJSONValue].self) {
+            self = .object(decoded)
         } else {
             throw DecodingError.dataCorruptedError(
-                in: c,
+                in: container,
                 debugDescription: "Unsupported JSON value"
             )
         }
     }
 
     public func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
+        var container = encoder.singleValueContainer()
         switch self {
-        case .null: try c.encodeNil()
-        case .bool(let v): try c.encode(v)
-        case .int(let v): try c.encode(v)
-        case .double(let v): try c.encode(v)
-        case .string(let v): try c.encode(v)
-        case .array(let v): try c.encode(v)
-        case .object(let v): try c.encode(v)
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
         }
     }
 
@@ -69,36 +69,47 @@ public indirect enum AdfiniaJSONValue: Codable, Equatable {
     static func from(_ value: Any?) -> AdfiniaJSONValue {
         guard let value = value else { return .null }
         if value is NSNull { return .null }
-        if let v = value as? Bool { return .bool(v) }
-        if let v = value as? Int { return .int(Int64(v)) }
-        if let v = value as? Int64 { return .int(v) }
-        if let v = value as? Double { return .double(v) }
-        if let v = value as? Float { return .double(Double(v)) }
-        if let v = value as? NSNumber {
-            // NSNumber is the unboxing path for ObjC literals — branch on
-            // the underlying type so we don't promote everything to Double.
-            let typeStr = String(cString: v.objCType)
-            switch typeStr {
-            case "c", "B": return .bool(v.boolValue)
-            case "f", "d": return .double(v.doubleValue)
-            default: return .int(v.int64Value)
-            }
-        }
-        if let v = value as? String { return .string(v) }
-        if let v = value as? [Any] { return .array(v.map { AdfiniaJSONValue.from($0) }) }
-        if let v = value as? [String: Any] {
+        if let scalar = scalarValue(value) { return scalar }
+        if let array = value as? [Any] { return .array(array.map { AdfiniaJSONValue.from($0) }) }
+        if let object = value as? [String: Any] {
             var out: [String: AdfiniaJSONValue] = [:]
-            for (k, val) in v { out[k] = AdfiniaJSONValue.from(val) }
+            for (key, element) in object { out[key] = AdfiniaJSONValue.from(element) }
             return .object(out)
         }
         // Unknown — coerce to string description so the event still ships.
         return .string(String(describing: value))
     }
 
+    /// Cast the primitive/number cases in the SAME priority order as the
+    /// original inline chain, returning nil for non-scalar inputs so the
+    /// caller can fall through to the array / object / string paths. Split
+    /// out to keep ``from(_:)`` under the cyclomatic-complexity limit.
+    private static func scalarValue(_ value: Any) -> AdfiniaJSONValue? {
+        if let boolValue = value as? Bool { return .bool(boolValue) }
+        if let intValue = value as? Int { return .int(Int64(intValue)) }
+        if let int64Value = value as? Int64 { return .int(int64Value) }
+        if let doubleValue = value as? Double { return .double(doubleValue) }
+        if let floatValue = value as? Float { return .double(Double(floatValue)) }
+        if let number = value as? NSNumber { return numberValue(number) }
+        if let stringValue = value as? String { return .string(stringValue) }
+        return nil
+    }
+
+    /// NSNumber is the unboxing path for ObjC literals — branch on the
+    /// underlying type so we don't promote everything to Double.
+    private static func numberValue(_ number: NSNumber) -> AdfiniaJSONValue {
+        let typeStr = String(cString: number.objCType)
+        switch typeStr {
+        case "c", "B": return .bool(number.boolValue)
+        case "f", "d": return .double(number.doubleValue)
+        default: return .int(number.int64Value)
+        }
+    }
+
     static func fromDictionary(_ dict: [String: Any]?) -> [String: AdfiniaJSONValue]? {
         guard let dict = dict else { return nil }
         var out: [String: AdfiniaJSONValue] = [:]
-        for (k, v) in dict { out[k] = AdfiniaJSONValue.from(v) }
+        for (key, element) in dict { out[key] = AdfiniaJSONValue.from(element) }
         return out
     }
 }
@@ -115,9 +126,20 @@ struct AdfiniaContext: Codable, Equatable {
     let library: AdfiniaLibraryInfo
     var locale: String?
     var timezone: String?
-    var os: AdfiniaOSContext?
+    var osContext: AdfiniaOSContext?
     var app: AdfiniaAppContext?
     var device: AdfiniaDeviceContext?
+
+    // Persisted key stays "os" (the queue serialises this to disk); only the
+    // Swift property is renamed to satisfy the min-identifier-length rule.
+    enum CodingKeys: String, CodingKey {
+        case library
+        case locale
+        case timezone
+        case osContext = "os"
+        case app
+        case device
+    }
 }
 
 struct AdfiniaOSContext: Codable, Equatable {
@@ -164,21 +186,41 @@ struct AdfiniaPayload: Codable, Equatable {
     }
 }
 
-/// Wire payload for `POST /api/v1/identify`.
+/// Wire payload for `POST /api/v1/identify`. CodingKeys map every field back
+/// to the exact snake_case JSON keys the API expects, so the serialised bytes
+/// are unchanged; only the Swift property names are camelCase.
 struct AdfiniaIdentifyWire: Encodable {
-    let customer_id: String?
-    let anonymous_id: String?
+    let customerId: String?
+    let anonymousId: String?
     let traits: [String: AdfiniaJSONValue]?
     let context: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case customerId = "customer_id"
+        case anonymousId = "anonymous_id"
+        case traits
+        case context
+    }
 }
 
-/// Wire payload for `POST /api/v1/track`. Note `event_name` — the API uses
-/// that name (the SDK uses `event` internally for parity with the web SDK).
+/// Wire payload for `POST /api/v1/track`. The API field is `event_name` (the
+/// SDK uses `event` internally for parity with the web SDK). CodingKeys map
+/// every field back to the exact snake_case JSON keys, so the serialised bytes
+/// are unchanged; only the Swift property names are camelCase.
 struct AdfiniaTrackWire: Encodable {
-    let customer_id: String?
-    let anonymous_id: String?
-    let event_name: String
+    let customerId: String?
+    let anonymousId: String?
+    let eventName: String
     let properties: [String: AdfiniaJSONValue]?
     let context: [String: String]?
-    let occurred_at: String?
+    let occurredAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case customerId = "customer_id"
+        case anonymousId = "anonymous_id"
+        case eventName = "event_name"
+        case properties
+        case context
+        case occurredAt = "occurred_at"
+    }
 }
