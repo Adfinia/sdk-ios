@@ -4,6 +4,41 @@ All notable changes to the official Adfinia iOS SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.2.0] — 2026-07-24
+
+### Added - native push registration
+- `Adfinia.registerForPush(deviceToken:)` (and an `unregisterForPush` pair) accept
+  the APNs device-token `Data` the host receives in
+  `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`, hex-encode it,
+  and `POST /api/v1/push/register` with `{token, platform:"ios", device_id,
+  app_version, customer_id, anonymous_id}`. This mirrors the React Native SDK's
+  `registerPush` payload for cross-SDK consistency. `hexToken:` overloads let hosts
+  that already hold the hex string skip the encode step. Emits a `push_registered`
+  track event on success.
+- `Adfinia.requestPushAuthorization(options:completion:)` — optional convenience
+  over `UNUserNotificationCenter` that prompts for notification permission and, on
+  grant, calls `registerForRemoteNotifications()`. The token-in path is primary; the
+  SDK does not link a push entitlement at build time, so this is a no-op on targets
+  without Push Notifications capability rather than a hard dependency.
+
+### Added - in-app notification inbox
+- `Adfinia.notifications` surface: `list(status:contactId:cursor:limit:)` ->
+  `GET /api/v1/notifications`, `markRead(_:)` -> `POST /notifications/{id}/read`,
+  `markAllRead()` -> `POST /notifications/read-all`, and an optional SSE
+  `stream(contactId:)` (`AsyncStream`) over `GET /api/v1/notifications/stream`
+  (iOS 15+/macOS 12+). `contact_id` defaults to the resolved identity
+  (`customer_id`, else `anonymous_id`) and is overridable.
+- Typed `AdfiniaNotification` model mirroring the backend `InboxNotification`
+  (`id, title, body, severity, dismissable, deep_link, data, read, created_at,
+  read_at, expires_at`); tolerant decoder so SSE frames without read-state still
+  parse. `AdfiniaNotificationPage` carries `next_cursor` + `has_more`.
+- New internal `ControlPlaneClient` request path for these non-batched endpoints
+  (separate from the event `Transport`), injectable for tests.
+
+### Changed
+- `AdfiniaVersion.libraryVersion` -> `1.2.0`; `X-Adfinia-SDK-Version` reports
+  `adfinia-sdk-ios@1.2.0`; podspec `s.version` -> `1.2.0`.
+
 ## [1.1.1] — 2026-07-22
 
 ### Added - write-only multi-channel consent API

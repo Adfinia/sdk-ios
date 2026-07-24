@@ -4,6 +4,38 @@ Round 2 (2026-05-20) landed the real implementation. `NEXT-IOS-1..4` and
 `NEXT-IOS-7` are now done. Remaining items are platform-niceties + the
 final publish step.
 
+## Done in v1.2.0 (2026-07-24) — push + inbox
+
+| ID | Title | Status |
+|----|-------|--------|
+| NEXT-IOS-10 | Native push registration (`registerForPush`/`unregisterForPush` + `requestPushAuthorization`) | Done — `Sources/AdfiniaSDK/PushRegistration.swift`. Mirrors RN `pushNative.ts` payload -> `POST /api/v1/push/register`. Emits `push_registered`. |
+| NEXT-IOS-11 | In-app notification inbox (`Adfinia.notifications` list / markRead / markAllRead / SSE stream) | Done — `Sources/AdfiniaSDK/Notifications.swift` + `ControlPlaneClient.swift`. Typed `AdfiniaNotification` mirrors backend `InboxNotification`. |
+
+### ⚠ Backend follow-up flagged (NOT fixed here — outside sdk-ios scope)
+
+The register endpoint contract diverges from what the SDK (and the RN SDK) send:
+
+1. **`POST /api/v1/push/register` does NOT persist to `device_tokens`.** In
+   `api/internal/activation/push/`, this route is served by `Handler.registerDevice`
+   -> `Dispatcher.RegisterDevice` (dispatcher.go), which only logs
+   `"device token registered (persistence deferred)"` and returns 201 — it never
+   writes a row. The APNs/FCM providers' `RegisterDevice` are also log-only. The
+   `device_tokens` table (the APNs fan-out source) is populated ONLY by the
+   separate `POST /api/v1/device-tokens` handler (`device_tokens_handler.go` ->
+   `PGRepository.Register`). So a device that registers via the SDK will not
+   receive push until the register route is pointed at the repository.
+2. **Field + validation mismatch.** The backend `RegisterRequest` (dispatcher.go)
+   is `{token, platform, contact_id}` with `contact_id` REQUIRED, and the handler
+   decodes with `DisallowUnknownFields()`. The SDK payload (matching RN) sends
+   `device_id`, `app_version`, `customer_id`, `anonymous_id` and no `contact_id`,
+   so the current handler would 400 on unknown fields / missing `contact_id`.
+
+   Backend action (file as an api story): make `/api/v1/push/register` (a) accept
+   the SDK/RN body (`device_id`/`app_version`/identity bag, optional `contact_id`),
+   (b) resolve the contact from the identity bag, and (c) persist to `device_tokens`
+   via the repository so the fan-out has a row. Until then iOS/RN push registration
+   is a no-op server-side.
+
 ## Done in v0.2.0
 
 | ID | Title | Status |
